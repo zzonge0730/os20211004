@@ -91,13 +91,19 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
+  if (ticks <= 0) return;
   int64_t start = timer_ticks ();
 
-  ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
-}
+  struct thread *cur = thread_current();
+  enum intr_level old_level;
 
+  cur->wakeup_tick = start + ticks;
+
+  old_level = intr_disable();  // 동기화 위해 인터럽트 끔
+  list_insert_ordered(&sleep_list, &cur->elem, wakeup_tick_less, NULL);
+  thread_block();              // 현재 스레드 BLOCKED 상태로 만듦
+  intr_set_level(old_level);   // 인터럽트 다시 켬
+}
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
    turned on. */
 void
