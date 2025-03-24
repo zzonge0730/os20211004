@@ -30,7 +30,7 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 static struct list sleep_list;  // 스레드들이 잠들어있는 리스트
-
+static bool wakeup_tick_less(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
