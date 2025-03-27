@@ -71,6 +71,8 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+
+/* ready_list 우선순위 비교 함수 */
 static bool
 priority_more(const struct list_elem *a,
               const struct list_elem *b,
@@ -254,7 +256,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered(&ready_list, &t->elem, priority_more, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
