@@ -39,7 +39,17 @@ process_execute (const char *file_name)
   strlcpy (fn_copy, file_name, PGSIZE);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  char *save_ptr;
+  char *fn_copy = palloc_get_page(0);
+  if (fn_copy == NULL)
+      return TID_ERROR;
+
+  strlcpy(fn_copy, cmd_line, PGSIZE);
+
+  // 프로그램 이름만 추출
+  char *file_name = strtok_r(fn_copy, " ", &save_ptr);
+
+  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
