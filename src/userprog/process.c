@@ -26,65 +26,118 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
-process_execute (const char *file_name) 
+process_execute (const char *cmd_line)
 {
   char *fn_copy;
   tid_t tid;
 
-  /* Make a copy of FILE_NAME.
-     Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
+  strlcpy (fn_copy, cmd_line, PGSIZE);
 
-  /* Create a new thread to execute FILE_NAME. */
-  char *save_ptr;
-  char *fn_copy = palloc_get_page(0);
-  if (fn_copy == NULL)
-      return TID_ERROR;
-
-  strlcpy(fn_copy, cmd_line, PGSIZE);
-
-  // 프로그램 이름만 추출
-  char *file_name = strtok_r(fn_copy, " ", &save_ptr);
-
-  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+  // 새 스레드 생성
+  tid = thread_create(fn_copy, PRI_DEFAULT, start_process, fn_copy); // fn_copy 그대로 전달
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+    palloc_free_page(fn_copy);
+
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
+/* Starts a user process by loading the executable and setting up the stack. */
 static void
-start_process (void *file_name_)
+start_process(void *cmd_line_)
 {
-  char *file_name = file_name_;
+  char *cmd_line = cmd_line_;
   struct intr_frame if_;
   bool success;
+  char *argv[128];
+  int argc = 0;
+  char *token, *save_ptr;
+  int i;
 
-  /* Initialize interrupt frame and load executable. */
-  memset (&if_, 0, sizeof if_);
+  /* Tokenize command line into arguments. */
+  for (token = strtok_r(cmd_line, " ", &save_ptr); token != NULL;
+       token = strtok_r(NULL, " ", &save_ptr))
+  {
+    if (argc >= 127) 
+      break;
+    argv[argc++] = token;
+  }
+  argv[argc] = NULL; /* NULL terminate argv. */
+
+  /* Initialize interrupt frame for the new user process. */
+  memset(&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
 
-  /* If load failed, quit. */
-  palloc_free_page (file_name);
-  if (!success) 
-    thread_exit ();
+  /* Load the executable. */
+  success = load(argv[0], &if_.eip, &if_.esp);
 
-  /* Start the user process by simulating a return from an
-     interrupt, implemented by intr_exit (in
-     threads/intr-stubs.S).  Because intr_exit takes all of its
-     arguments on the stack in the form of a `struct intr_frame',
-     we just point the stack pointer (%esp) to our stack frame
-     and jump to it. */
-  asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
-  NOT_REACHED ();
+  /* Release the command line page regardless of success. */
+  palloc_free_page(cmd_line);
+  
+  /* Exit thread if loading failed. */
+  if (!success)
+    thread_exit();
+
+  /* Prepare the user stack with arguments. */
+  void *esp = if_.esp;
+  char *arg_addresses[128];
+
+  /* Push argument strings onto the stack. */
+  for (i = argc - 1; i >= 0; i--) {
+    size_t len = strlen(argv[i]) + 1;
+    esp -= len;
+    memcpy(esp, argv[i], len);
+    arg_addresses[i] = (char *)esp;
+  }
+
+  /* Word-align the stack (4-byte alignment). */
+  uintptr_t align = (uintptr_t)esp % 4;
+  if (align) {
+    esp -= align;
+    memset(esp, 0, align);
+  }
+
+  /* Push NULL sentinel. */
+  esp -= sizeof(char *);
+  *(char **)esp = NULL;
+
+  /* Push addresses of arguments. */
+  for (i = argc - 1; i >= 0; i--) {
+    esp -= sizeof(char *);
+    *(char **)esp = arg_addresses[i];
+  }
+
+  /* Push argv (address of argv[0]). */
+  char **argv_start = (char **)esp;
+  esp -= sizeof(char **);
+  *(char ***)esp = argv_start;
+
+  /* Push argc. */
+  esp -= sizeof(int);
+  *(int *)esp = argc;
+
+  /* Push fake return address. */
+  esp -= sizeof(void *);
+  *(void **)esp = NULL;
+
+  /* Update stack pointer. */
+  if_.esp = esp;
+
+  /* Start the user process by simulating a return from interrupt. */
+  asm volatile("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
+  NOT_REACHED();
 }
+
+
+
+
+
 
 /* Waits for thread TID to die and returns its exit status.  If
    it was terminated by the kernel (i.e. killed due to an
