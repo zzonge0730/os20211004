@@ -50,90 +50,90 @@ process_execute (const char *cmd_line)
 static void
 start_process(void *cmd_line_)
 {
-  char *cmd_line = cmd_line_;
-  struct intr_frame if_;
-  bool success;
-  char *argv[128];
-  int argc = 0;
-  char *token, *save_ptr;
-  int i;
+    char *cmd_line = cmd_line_;
+    struct intr_frame if_;
+    bool success;
+    struct thread *cur = thread_current();
+    void *esp;
+    int i;
 
-  /* Tokenize command line into arguments. */
-  for (token = strtok_r(cmd_line, " ", &save_ptr); token != NULL;
-       token = strtok_r(NULL, " ", &save_ptr))
-  {
-    if (argc >= 127) 
-      break;
-    argv[argc++] = token;
-  }
-  argv[argc] = NULL; /* NULL terminate argv. */
+    /* Initialize interrupt frame */
+    memset(&if_, 0, sizeof if_);
+    if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
+    if_.cs = SEL_UCSEG;
+    if_.eflags = FLAG_IF | FLAG_MBS;
 
-  /* Initialize interrupt frame for the new user process. */
-  memset(&if_, 0, sizeof if_);
-  if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
-  if_.cs = SEL_UCSEG;
-  if_.eflags = FLAG_IF | FLAG_MBS;
+    /* Parse cmd_line into argv */
+    char *argv[128];
+    int argc = 0;
+    char *token, *save_ptr;
+    for (token = strtok_r(cmd_line, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr)) {
+        argv[argc++] = token;
+    }
+    argv[argc] = NULL;  // NULL-terminate
 
-  /* Load the executable. */
-  success = load(argv[0], &if_.eip, &if_.esp);
+    /* Load the executable (argv[0]) */
+    success = load(argv[0], &if_.eip, &if_.esp);
 
-  /* Release the command line page regardless of success. */
-  palloc_free_page(cmd_line);
-  
-  /* Exit thread if loading failed. */
-  if (!success)
-    thread_exit();
+    /* Load 실패하면 exit */
+    if (!success) {
+        palloc_free_page(cmd_line);
+        thread_exit();
+    }
 
-  /* Prepare the user stack with arguments. */
-  void *esp = if_.esp;
-  char *arg_addresses[128];
+    /* Setup Stack */
+    esp = if_.esp;
+    char *arg_addr[128];
 
-  /* Push argument strings onto the stack. */
-  for (i = argc - 1; i >= 0; i--) {
-    size_t len = strlen(argv[i]) + 1;
-    esp -= len;
-    memcpy(esp, argv[i], len);
-    arg_addresses[i] = (char *)esp;
-  }
+    // (1) Push arguments (strings) onto the stack
+    for (i = argc - 1; i >= 0; i--) {
+        size_t len = strlen(argv[i]) + 1;
+        esp -= len;
+        memcpy(esp, argv[i], len);
+        arg_addr[i] = (char *)esp;
+    }
 
-  /* Word-align the stack (4-byte alignment). */
-  uintptr_t align = (uintptr_t)esp % 4;
-  if (align) {
-    esp -= align;
-    memset(esp, 0, align);
-  }
+    // (2) Word Align (4 bytes)
+    uintptr_t align = (uintptr_t)esp % 4;
+    if (align != 0) {
+        esp -= align;
+        memset(esp, 0, align);
+    }
 
-  /* Push NULL sentinel. */
-  esp -= sizeof(char *);
-  *(char **)esp = NULL;
-
-  /* Push addresses of arguments. */
-  for (i = argc - 1; i >= 0; i--) {
+    // (3) NULL sentinel (argv[argc])
     esp -= sizeof(char *);
-    *(char **)esp = arg_addresses[i];
-  }
+    *(char **)esp = NULL;
 
-  /* Push argv (address of argv[0]). */
-  char **argv_start = (char **)esp;
-  esp -= sizeof(char **);
-  *(char ***)esp = argv_start;
+    // (4) Push addresses of arguments
+    for (i = argc - 1; i >= 0; i--) {
+        esp -= sizeof(char *);
+        *(char **)esp = arg_addr[i];
+    }
 
-  /* Push argc. */
-  esp -= sizeof(int);
-  *(int *)esp = argc;
+    // (5) Push argv (pointer to argv[0])
+    char **argv_start = (char **)esp;
+    esp -= sizeof(char **);
+    *(char ***)esp = argv_start;
 
-  /* Push fake return address. */
-  esp -= sizeof(void *);
-  *(void **)esp = NULL;
+    // (6) Push argc
+    esp -= sizeof(int);
+    *(int *)esp = argc;
 
-  /* Update stack pointer. */
-  if_.esp = esp;
+    // (7) Push fake return address
+    esp -= sizeof(void *);
+    *(void **)esp = NULL;
 
-  /* Start the user process by simulating a return from interrupt. */
-  asm volatile("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
-  NOT_REACHED();
+    // (8) Update if_.esp
+    if_.esp = esp;
+
+    // Free cmd_line memory
+    palloc_free_page(cmd_line);
+
+    // Start the user process
+    asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
+
+    NOT_REACHED();
 }
-
 
 
 

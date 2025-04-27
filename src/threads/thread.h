@@ -80,6 +80,7 @@ typedef int tid_t;
    only because they are mutually exclusive: only a thread in the
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
+#define FD_MAX 128
 struct thread
   {
     /* Owned by thread.c. */
@@ -92,6 +93,8 @@ struct thread
     int64_t wakeup_tick;                /* 스레드가 잠들어있는 시간 */   
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+    struct file *fd_table[128];          /* fd_table의 fd를 저장하는 공간. */
+    int exit_status;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
