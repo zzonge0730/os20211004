@@ -57,7 +57,7 @@ void check_valid_string(const char *str) {
 static void syscall_handler(struct intr_frame *f) {
     void *esp = f->esp;
     check_address(esp);
-
+    check_address(esp + 3);
     int syscall_num = *(int *)esp;
 
     switch (syscall_num) {
@@ -136,17 +136,20 @@ void exit(int status) {
     struct thread *cur = thread_current();
     int i;
 
-    // exit_status 저장
+        /* === Project 2: Store exit status and Set Flag (Use Lock) === */
+    lock_acquire(&cur->child_info_lock);
     cur->exit_status = status;
-
+    cur->exited = true;
+    lock_release(&cur->child_info_lock);
+    /* ======================================================== */
     // 열린 파일 다 닫기
     for (i = 2; i < 128; i++) {
         if (cur->fd_table[i] != NULL) {
-            file_close(cur->fd_table[i]);
+            file_close(cur->
+            fd_table[i]);
             cur->fd_table[i] = NULL;
         }
     }
-    printf("KERNEL: exit(status=%d) called for %s\n", status, cur->name); // 디버깅 출력 추가
     printf("%s: exit(%d)\n", cur->name, status);
     thread_exit();
 }
@@ -157,7 +160,6 @@ int write(int fd, const void *buffer, unsigned size) {
     struct thread *cur = thread_current();
 
     if (fd == 1) { // STDOUT
-        printf("KERNEL: write(fd=1, size=%u) called\n", size); // 디버깅 출력 추가
         putbuf(buffer, size);
         return size;
     }

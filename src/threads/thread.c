@@ -109,9 +109,21 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
-  for (int i = 0; i < FD_MAX; i++) {
+  int i;
+  struct thread *t = initial_thread;  
+  for (i = 0; i < FD_MAX; i++) {
       t->fd_table[i] = NULL;
   }
+  #ifdef USERPROG
+  /* Initialize members for Project 2 */
+  t->exited = false;             // 초기값은 false
+  t->exit_status = -1;          // 기본 종료 상태
+  lock_init(&t->child_info_lock); // 정보 락 초기화
+  list_init(&t->children);
+  t->parent_thread = NULL;
+  t->waited_on = false;
+  lock_init(&t->child_list_lock);
+  #endif
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -222,7 +234,12 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
-
+  #ifdef USERPROG
+  /* === Project 2: Setup Parent-Child Relationship === */
+  struct thread *cur = thread_current();
+  t->parent_thread = cur;
+  /* ============================================= */
+  #endif
   return tid;
 }
 

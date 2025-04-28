@@ -54,6 +54,11 @@ start_process(void *cmd_line_)
     struct intr_frame if_;
     bool success;
     struct thread *cur = thread_current();
+    if (cur->parent_thread != NULL) {
+    sema_init(&cur->wait_sema, 0);   // 🔥 추가: wait_sema 초기화
+    lock_acquire(&cur->parent_thread->child_list_lock);
+    list_push_back(&cur->parent_thread->children, &cur->child_elem);
+    lock_release(&cur->parent_thread->child_list_lock);}
     void *esp;
     int i;
 
@@ -126,13 +131,13 @@ start_process(void *cmd_line_)
     // (8) Update if_.esp
     if_.esp = esp;
 
-    // Free cmd_line memory
-    //palloc_free_page(cmd_line);
 
     // Start the user process
     asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
 
     NOT_REACHED();
+
+    
 }
 
 
@@ -148,35 +153,64 @@ start_process(void *cmd_line_)
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int
-process_wait (tid_t child_tid UNUSED) 
-{
-  return -1;
+int process_wait(tid_t child_tid) {
+    struct thread *cur = thread_current();
+    struct thread *child_thread = NULL;
+    struct list_elem *e;
+
+    // 1. child_list에서 자식 찾기
+    lock_acquire(&cur->child_list_lock);
+    for (e = list_begin(&cur->children); e != list_end(&cur->children); e = list_next(e)) {
+        struct thread *t = list_entry(e, struct thread, child_elem);
+        if (t->tid == child_tid) {
+            child_thread = t;
+            if (child_thread->waited_on) {
+                child_thread = NULL;
+            } else {
+                child_thread->waited_on = true;
+            }
+            break;
+        }
+    }
+    lock_release(&cur->child_list_lock);
+
+    if (child_thread == NULL) {
+        return -1;
+    }
+
+    // 🔥 세마포어 wait
+    sema_down(&child_thread->wait_sema);
+
+    // 2. exit_status 읽기
+    lock_acquire(&child_thread->child_info_lock);
+    int status = child_thread->exit_status;
+    lock_release(&child_thread->child_info_lock);
+
+    // 3. child_list에서 제거
+    lock_acquire(&cur->child_list_lock);
+    list_remove(&child_thread->child_elem);
+    lock_release(&cur->child_list_lock);
+
+    return status;
 }
 
-/* Free the current process's resources. */
-void
-process_exit (void)
-{
-  struct thread *cur = thread_current ();
-  uint32_t *pd;
 
-  /* Destroy the current process's page directory and switch back
-     to the kernel-only page directory. */
-  pd = cur->pagedir;
-  if (pd != NULL) 
-    {
-      /* Correct ordering here is crucial.  We must set
-         cur->pagedir to NULL before switching page directories,
-         so that a timer interrupt can't switch back to the
-         process page directory.  We must activate the base page
-         directory before destroying the process's page
-         directory, or our active page directory will be one
-         that's been freed (and cleared). */
-      cur->pagedir = NULL;
-      pagedir_activate (NULL);
-      pagedir_destroy (pd);
-    }
+
+
+/* Free the current process's resources. */
+void exit(int status) {
+    struct thread *cur = thread_current();
+
+    lock_acquire(&cur->child_info_lock);
+    cur->exit_status = status;
+    cur->exited = true;
+    lock_release(&cur->child_info_lock);
+
+    sema_up(&cur->wait_sema);   // 🔥 부모 깨우기!!
+
+    // 열린 파일 정리 등 나머지 exit 로직
+    printf("%s: exit(%d)\n", cur->name, status);
+    thread_exit();
 }
 
 /* Sets up the CPU for running user code in the current

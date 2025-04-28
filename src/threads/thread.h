@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -81,6 +82,7 @@ typedef int tid_t;
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
 #define FD_MAX 128
+
 struct thread
   {
     /* Owned by thread.c. */
@@ -94,12 +96,15 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
     struct file *fd_table[128];          /* fd_table의 fd를 저장하는 공간. */
-    int exit_status;
 
-#ifdef USERPROG
-    /* Owned by userprog/process.c. */
-    uint32_t *pagedir;                  /* Page directory. */
-#endif
+
+   #ifdef USERPROG
+   struct semaphore wait_sema;   // 부모가 기다릴 세마포어
+   bool exited;                  // 종료 플래그
+   int exit_status;              // 종료 상태
+   bool waited_on;               // 이미 wait 했는지 확인
+   #endif
+
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
