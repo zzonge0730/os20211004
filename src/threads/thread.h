@@ -83,6 +83,7 @@ typedef int tid_t;
    blocked state is on a semaphore wait list. */
 #define FD_MAX 128
 
+#define THREAD_MAGIC 0xcd6abf4b
 struct thread
   {
     /* Owned by thread.c. */
@@ -99,12 +100,14 @@ struct thread
 
 
    #ifdef USERPROG
-   struct semaphore wait_sema;   // 부모가 기다릴 세마포어
-   bool exited;                  // 종료 플래그
-   int exit_status;              // 종료 상태
-   bool waited_on;               // 이미 wait 했는지 확인
+      /* User program 관련 */
+      uint32_t *pagedir;           //  추가 필수 (user virtual memory 관리)
+      struct semaphore wait_sema;  //  부모가 기다릴 자식의 세마포어
+      bool exited;                 //  자식 프로세스가 종료됐는지
+      int exit_status;             //  자식 프로세스 종료 상태
+      bool waited_on;              //  부모가 이미 wait 했는지 체크
+      struct thread *parent_thread; //  부모 스레드 포인터 (parent-child 관계)
    #endif
-
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
@@ -146,4 +149,7 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
+#include "lib/kernel/list.h"   // 리스트 자료구조 include
+extern struct list all_list;
+struct thread *get_thread_by_tid(tid_t tid);
 #endif /* threads/thread.h */

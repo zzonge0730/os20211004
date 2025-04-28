@@ -54,11 +54,7 @@ start_process(void *cmd_line_)
     struct intr_frame if_;
     bool success;
     struct thread *cur = thread_current();
-    if (cur->parent_thread != NULL) {
-    sema_init(&cur->wait_sema, 0);   // 🔥 추가: wait_sema 초기화
-    lock_acquire(&cur->parent_thread->child_list_lock);
-    list_push_back(&cur->parent_thread->children, &cur->child_elem);
-    lock_release(&cur->parent_thread->child_list_lock);}
+    sema_init(&cur->wait_sema, 0);   // 추가: wait_sema 초기화
     void *esp;
     int i;
 
@@ -153,65 +149,49 @@ start_process(void *cmd_line_)
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int process_wait(tid_t child_tid) {
-    struct thread *cur = thread_current();
-    struct thread *child_thread = NULL;
-    struct list_elem *e;
 
-    // 1. child_list에서 자식 찾기
-    lock_acquire(&cur->child_list_lock);
-    for (e = list_begin(&cur->children); e != list_end(&cur->children); e = list_next(e)) {
-        struct thread *t = list_entry(e, struct thread, child_elem);
-        if (t->tid == child_tid) {
-            child_thread = t;
-            if (child_thread->waited_on) {
-                child_thread = NULL;
-            } else {
-                child_thread->waited_on = true;
-            }
-            break;
+struct thread* get_thread_by_tid(tid_t tid) {
+    struct list_elem *e;
+    for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
+        struct thread *t = list_entry(e, struct thread, allelem);
+        if (t->tid == tid) {
+            return t;
         }
     }
-    lock_release(&cur->child_list_lock);
+    return NULL;
+}   
+// process.c (process_wait 함수 내부)
+int process_wait(tid_t child_tid) {
+  struct thread *child = get_thread_by_tid(child_tid);
+  
+  if (child == NULL)
+    return -1;
 
-    if (child_thread == NULL) {
-        return -1;
-    }
+  if (child->waited_on) // 🔥 child로 해야 함
+    return -1;
 
-    // 🔥 세마포어 wait
-    sema_down(&child_thread->wait_sema);
-
-    // 2. exit_status 읽기
-    lock_acquire(&child_thread->child_info_lock);
-    int status = child_thread->exit_status;
-    lock_release(&child_thread->child_info_lock);
-
-    // 3. child_list에서 제거
-    lock_acquire(&cur->child_list_lock);
-    list_remove(&child_thread->child_elem);
-    lock_release(&cur->child_list_lock);
-
-    return status;
+  child->waited_on = true;
+  sema_down(&child->wait_sema);
+  int status = child->exit_status;
+  return status;
 }
 
 
+void process_exit(void) {
+  struct thread *cur = thread_current();
+  printf("%s: exit(%d)\n", cur->name, cur->exit_status); // 🔥 반드시 출력
 
-
-/* Free the current process's resources. */
-void exit(int status) {
-    struct thread *cur = thread_current();
-
-    lock_acquire(&cur->child_info_lock);
-    cur->exit_status = status;
-    cur->exited = true;
-    lock_release(&cur->child_info_lock);
-
-    sema_up(&cur->wait_sema);   // 🔥 부모 깨우기!!
-
-    // 열린 파일 정리 등 나머지 exit 로직
-    printf("%s: exit(%d)\n", cur->name, status);
-    thread_exit();
+  sema_up(&cur->wait_sema); // 🔥 부모를 깨우기
+  
+  uint32_t *pd = cur->pagedir;
+  if (pd != NULL) {
+    cur->pagedir = NULL;
+    pagedir_activate(NULL);
+    pagedir_destroy(pd);
+  }
 }
+
+
 
 /* Sets up the CPU for running user code in the current
    thread.

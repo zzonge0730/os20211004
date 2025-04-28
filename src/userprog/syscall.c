@@ -132,27 +132,14 @@ void halt(void) {
     shutdown_power_off();
 }
 
+// syscall.c (exit 함수 내부)
 void exit(int status) {
-    struct thread *cur = thread_current();
-    int i;
-
-        /* === Project 2: Store exit status and Set Flag (Use Lock) === */
-    lock_acquire(&cur->child_info_lock);
-    cur->exit_status = status;
-    cur->exited = true;
-    lock_release(&cur->child_info_lock);
-    /* ======================================================== */
-    // 열린 파일 다 닫기
-    for (i = 2; i < 128; i++) {
-        if (cur->fd_table[i] != NULL) {
-            file_close(cur->
-            fd_table[i]);
-            cur->fd_table[i] = NULL;
-        }
-    }
-    printf("%s: exit(%d)\n", cur->name, status);
-    thread_exit();
+  struct thread *cur = thread_current();
+  cur->exit_status = status;
+  process_exit();
+  thread_exit();
 }
+
 
 int write(int fd, const void *buffer, unsigned size) {
     check_valid_buffer(buffer, size);
