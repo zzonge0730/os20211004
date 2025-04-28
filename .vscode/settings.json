@@ -59,6 +59,8 @@
   "files.associations": {
     "shutdown.h": "c",
     "input.h": "c",
-    "file.h": "c"
+    "file.h": "c",
+    "syscall-nr.h": "c",
+    "syscall.h": "c"
   }
 }

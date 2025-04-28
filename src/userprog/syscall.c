@@ -29,6 +29,7 @@ static void syscall_handler(struct intr_frame *);
 
 // 초기화
 void syscall_init(void) {
+    printf("KERNEL: syscall_init() called\n"); // 디버깅 출력 추가
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -145,7 +146,7 @@ void exit(int status) {
             cur->fd_table[i] = NULL;
         }
     }
-
+    printf("KERNEL: exit(status=%d) called for %s\n", status, cur->name); // 디버깅 출력 추가
     printf("%s: exit(%d)\n", cur->name, status);
     thread_exit();
 }
@@ -156,17 +157,17 @@ int write(int fd, const void *buffer, unsigned size) {
     struct thread *cur = thread_current();
 
     if (fd == 1) { // STDOUT
+        printf("KERNEL: write(fd=1, size=%u) called\n", size); // 디버깅 출력 추가
         putbuf(buffer, size);
         return size;
     }
 
-    // 잘못된 fd 검사
     if (fd < 2 || fd >= 128 || cur->fd_table[fd] == NULL)
         return -1;
 
-    // 파일에 쓰기
     return file_write(cur->fd_table[fd], buffer, size);
 }
+
 
 
 bool create(const char *file, unsigned initial_size) {

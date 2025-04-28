@@ -127,7 +127,7 @@ start_process(void *cmd_line_)
     if_.esp = esp;
 
     // Free cmd_line memory
-    palloc_free_page(cmd_line);
+    //palloc_free_page(cmd_line);
 
     // Start the user process
     asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
