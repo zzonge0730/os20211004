@@ -47,9 +47,13 @@ void check_valid_buffer(const void *buffer, unsigned size) {
 }
 
 void check_valid_string(const char *str) {
-    while (*str != 0) {
-        check_address((void *)str);
-        str++;
+    const char *ptr = str;
+    while (true) {
+        check_address((void *)ptr);
+        if (*ptr == '\0') {
+            break;
+        }
+        ptr++;
     }
 }
 
@@ -168,11 +172,15 @@ int write(int fd, const void *buffer, unsigned size) {
 
 bool create(const char *file, unsigned initial_size) {
     check_valid_string(file);
+    if (file == NULL) // NULL 포인터 검사
+    exit(-1);
     return filesys_create(file, initial_size);
 }
 
 int open(const char *file) {
     check_valid_string(file);
+    if (file == NULL) // NULL 포인터 검사
+    exit(-1);
     struct thread *cur = thread_current();
     struct file *f = filesys_open(file);
 
