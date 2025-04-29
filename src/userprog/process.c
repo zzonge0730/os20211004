@@ -54,7 +54,6 @@ start_process(void *cmd_line_)
     struct intr_frame if_;
     bool success;
     struct thread *cur = thread_current();
-    sema_init(&cur->wait_sema, 0);   // 추가: wait_sema 초기화
     void *esp;
     int i;
 
@@ -129,16 +128,11 @@ start_process(void *cmd_line_)
     // (9) Update if_.esp
     if_.esp = esp;
 
-<<<<<<< HEAD
     palloc_free_page(cmd_line);
-=======
->>>>>>> 6c8c0862f8315773bcb178dc3ebc6afa65f24c3c
 
     asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
 
     NOT_REACHED();
-
-    
 }
 
 
@@ -154,7 +148,6 @@ start_process(void *cmd_line_)
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-<<<<<<< HEAD
 int
 process_wait (tid_t child_tid UNUSED) 
 {
@@ -164,51 +157,31 @@ process_wait (tid_t child_tid UNUSED)
   }
   return 1;
 }
-=======
->>>>>>> 6c8c0862f8315773bcb178dc3ebc6afa65f24c3c
 
-struct thread* get_thread_by_tid(tid_t tid) {
-    struct list_elem *e;
-    for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
-        struct thread *t = list_entry(e, struct thread, allelem);
-        if (t->tid == tid) {
-            return t;
-        }
+/* Free the current process's resources. */
+void
+process_exit (void)
+{
+  struct thread *cur = thread_current ();
+  uint32_t *pd;
+
+  /* Destroy the current process's page directory and switch back
+     to the kernel-only page directory. */
+  pd = cur->pagedir;
+  if (pd != NULL) 
+    {
+      /* Correct ordering here is crucial.  We must set
+         cur->pagedir to NULL before switching page directories,
+         so that a timer interrupt can't switch back to the
+         process page directory.  We must activate the base page
+         directory before destroying the process's page
+         directory, or our active page directory will be one
+         that's been freed (and cleared). */
+      cur->pagedir = NULL;
+      pagedir_activate (NULL);
+      pagedir_destroy (pd);
     }
-    return NULL;
-}   
-// process.c (process_wait 함수 내부)
-int process_wait(tid_t child_tid) {
-  struct thread *child = get_thread_by_tid(child_tid);
-  
-  if (child == NULL)
-    return -1;
-
-  if (child->waited_on) // 🔥 child로 해야 함
-    return -1;
-
-  child->waited_on = true;
-  sema_down(&child->wait_sema);
-  int status = child->exit_status;
-  return status;
 }
-
-
-void process_exit(void) {
-  struct thread *cur = thread_current();
-  printf("%s: exit(%d)\n", cur->name, cur->exit_status); // 🔥 반드시 출력
-
-  sema_up(&cur->wait_sema); // 🔥 부모를 깨우기
-  
-  uint32_t *pd = cur->pagedir;
-  if (pd != NULL) {
-    cur->pagedir = NULL;
-    pagedir_activate(NULL);
-    pagedir_destroy(pd);
-  }
-}
-
-
 
 /* Sets up the CPU for running user code in the current
    thread.
