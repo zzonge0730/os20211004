@@ -109,7 +109,9 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
-  for (int i = 0; i < FD_MAX; i++) {
+  int i;
+  struct thread *t = initial_thread;
+  for (i = 0; i < FD_MAX; i++) {
       t->fd_table[i] = NULL;
   }
 }

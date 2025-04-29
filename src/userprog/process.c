@@ -71,7 +71,7 @@ start_process(void *cmd_line_)
         argv[argc++] = token;
     }
     argv[argc] = NULL;  // NULL-terminate
-
+    strlcpy (cur->name, argv[0], sizeof cur->name);
     /* Load the executable (argv[0]) */
     success = load(argv[0], &if_.eip, &if_.esp);
 
@@ -85,7 +85,7 @@ start_process(void *cmd_line_)
     esp = if_.esp;
     char *arg_addr[128];
 
-    // (1) Push arguments (strings) onto the stack
+    // (1) Push argument strings onto stack (역순으로)
     for (i = argc - 1; i >= 0; i--) {
         size_t len = strlen(argv[i]) + 1;
         esp -= len;
@@ -93,14 +93,14 @@ start_process(void *cmd_line_)
         arg_addr[i] = (char *)esp;
     }
 
-    // (2) Word Align (4 bytes)
+    // (2) Word-align (4 byte 정렬)
     uintptr_t align = (uintptr_t)esp % 4;
     if (align != 0) {
         esp -= align;
         memset(esp, 0, align);
     }
 
-    // (3) NULL sentinel (argv[argc])
+    // (3) Push NULL sentinel
     esp -= sizeof(char *);
     *(char **)esp = NULL;
 
@@ -110,27 +110,27 @@ start_process(void *cmd_line_)
         *(char **)esp = arg_addr[i];
     }
 
-    // (5) Push argv (pointer to argv[0])
+    // (5) Save argv pointer (지금 esp가 argv[0] 배열의 주소를 가리킴)
     char **argv_start = (char **)esp;
+
+    // (6) Push argv
     esp -= sizeof(char **);
     *(char ***)esp = argv_start;
 
-    // (6) Push argc
+    // (7) Push argc
     esp -= sizeof(int);
     *(int *)esp = argc;
 
-    // (7) Push fake return address
+    // (8) Push fake return address
     esp -= sizeof(void *);
     *(void **)esp = NULL;
 
-    // (8) Update if_.esp
+    // (9) Update if_.esp
     if_.esp = esp;
 
-    // Free cmd_line memory
-    //palloc_free_page(cmd_line);
+    palloc_free_page(cmd_line);
 
-    // Start the user process
-    asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(&if_) : "memory");
+    asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
 
     NOT_REACHED();
 }
@@ -151,7 +151,11 @@ start_process(void *cmd_line_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  return -1;
+  int i;
+  for (i = 0; i < 1000; i++) {
+    thread_yield();
+  }
+  return 1;
 }
 
 /* Free the current process's resources. */
