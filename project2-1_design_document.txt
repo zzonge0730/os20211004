@@ -29,21 +29,33 @@ FirstName LastName <email@domain.example>
 >> A1: Copy here the declaration of each new or changed `struct' or
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
+In thread.h:
 
+struct thread {
+  struct file *fd_table[128]; // Array to store opened file descriptors for each thread.
+#ifdef USERPROG
+  uint32_t *pagedir; // Page directory for managing user virtual memory.
+  bool exited; // Indicates whether the thread has exited.
+  int exit_status; // Stores the thread's exit status.
+#endif
+};
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe how you implemented argument parsing.  How do
 >> you arrange for the elements of argv[] to be in the right order?
 >> How do you avoid overflowing the stack page?
-
+In start_process, the argument string is tokenized using strtok_r to separate it into arguments. Arguments are pushed onto the stack in reverse order. After that, word-alignment is performed, then argument addresses are pushed, followed by argv, argc, and a fake return address. Care is taken to ensure the stack does not overflow the user stack page.
 ---- RATIONALE ----
 
 >> A3: Why does Pintos implement strtok_r() but not strtok()?
-
+Pintos uses strtok_r() instead of strtok() because strtok_r() is reentrant and thread-safe, which avoids conflicts when multiple 
+processes parse arguments simultaneously.
 >> A4: In Pintos, the kernel separates commands into a executable name
 >> and arguments.  In Unix-like systems, the shell does this
 >> separation.  Identify at least two advantages of the Unix approach.
+The kernel remains simpler, handling only execution, not parsing.
 
+The user has greater flexibility to customize command parsing behaviors (e.g., wildcards, piping).
                  SYSTEM CALLS
                  ============
 
@@ -52,11 +64,14 @@ FirstName LastName <email@domain.example>
 >> B1: Copy here the declaration of each new or changed `struct' or
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
-
+struct file *fd_table[128]; // Table mapping file descriptors to opened files for each thread.
+uint32_t *pagedir;            // Page directory used by syscalls to validate and access user memory addresses passed as arguments
+bool exited; // Indicates whether the thread has exited.
+int exit_status; // Stores the thread's exit status.
 >> B2: Describe how file descriptors are associated with open files.
 >> Are file descriptors unique within the entire OS or just within a
 >> single process?
-
+Each process (thread) has its own fd_table, which maps file descriptors (integers 0-127) to opened files. File descriptors are unique within a single process, not globally across the OS.
 ---- ALGORITHMS ----
 
 >> B3: Describe your code for reading and writing user data from the
@@ -71,6 +86,7 @@ FirstName LastName <email@domain.example>
 
 >> B5: Briefly describe your implementation of the "wait" system call
 >> and how it interacts with process termination.
+process_wait() is currently a dummy implementation: it simply yields the CPU 1000 times and returns 1. Proper child process waiting and synchronization is not yet implemented in project 2-1.
 
 >> B6: Any access to user program memory at a user-specified address
 >> can fail due to a bad pointer value.  Such accesses must cause the
