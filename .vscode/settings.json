@@ -61,6 +61,7 @@
     "input.h": "c",
     "file.h": "c",
     "syscall-nr.h": "c",
-    "syscall.h": "c"
+    "syscall.h": "c",
+    "synch.h": "c"
   }
 }
