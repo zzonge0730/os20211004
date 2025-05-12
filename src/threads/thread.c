@@ -26,7 +26,8 @@ static struct list ready_list;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
-static struct list all_list;
+
+struct list all_list;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -110,10 +111,22 @@ thread_init (void)
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
   int i;
+<<<<<<< HEAD
   struct thread *t = initial_thread;
+=======
+  struct thread *t = initial_thread;  
+>>>>>>> 6c8c0862f8315773bcb178dc3ebc6afa65f24c3c
   for (i = 0; i < FD_MAX; i++) {
       t->fd_table[i] = NULL;
   }
+  #ifdef USERPROG
+  /* Initialize members for Project 2 */
+  t->exited = false;             // 초기값은 false
+  t->exit_status = -1;          // 기본 종료 상태
+  t->parent_thread = NULL;
+  t->waited_on = false;
+  sema_init (&t->wait_sema, 0);
+  #endif
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -224,7 +237,12 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
-
+  #ifdef USERPROG
+  /* === Project 2: Setup Parent-Child Relationship === */
+  struct thread *cur = thread_current();
+  t->parent_thread = cur;
+  /* ============================================= */
+  #endif
   return tid;
 }
 
@@ -310,11 +328,7 @@ void
 thread_exit (void) 
 {
   ASSERT (!intr_context ());
-
-#ifdef USERPROG
-  process_exit ();
-#endif
-
+  struct thread *cur = thread_current();
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
@@ -496,6 +510,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
+  list_elem_init(&t->elem);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

@@ -290,6 +290,7 @@ run_task (char **argv)
   run_test (task);
 #endif
   printf ("Execution of '%s' complete.\n", task);
+
 }
 
 /* Executes all of the actions specified in ARGV[]
