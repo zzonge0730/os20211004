@@ -21,7 +21,7 @@ bool create(const char *file, unsigned initial_size);
 int open(const char *file);
 void close(int fd);
 int read(int fd, void *buffer, unsigned size);
-
+int filesize(int fd);
 
 void check_address(void *addr);
 void check_valid_buffer(const void *buffer, unsigned size);
@@ -137,6 +137,13 @@ static void syscall_handler(struct intr_frame *f) {
                 check_valid_buffer(buffer, size); // 버퍼 전체 접근 가능성 확인
 
                 f->eax = read(fd, buffer, size);
+            }
+            break;
+        case SYS_FILESIZE:
+            check_address(esp + 4);
+            {
+                int fd = *(int *)(esp + 4);
+                f->eax = filesize(fd);
             }
             break;
 
@@ -257,3 +264,10 @@ int read(int fd, void *buffer, unsigned size) {
     return bytes;
 }
 
+int filesize(int fd) {
+    struct thread *cur = thread_current();
+    if (fd < 2 || fd >= 128 || cur->fd_table[fd] == NULL)
+        return -1;
+
+    return file_length(cur->fd_table[fd]);
+}
