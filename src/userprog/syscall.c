@@ -19,6 +19,8 @@ int write(int fd, const void *buffer, unsigned size);
 bool create(const char *file, unsigned initial_size);
 int open(const char *file);
 void close(int fd);
+int read(int fd, void *buffer, unsigned size);
+
 
 void check_address(void *addr);
 void check_valid_buffer(const void *buffer, unsigned size);
@@ -47,9 +49,13 @@ void check_valid_buffer(const void *buffer, unsigned size) {
 }
 
 void check_valid_string(const char *str) {
-    while (*str != 0) {
-        check_address((void *)str);
-        str++;
+    const char *ptr = str;
+    while (true) {
+        check_address((void *)ptr);
+        if (*ptr == '\0') {
+            break;
+        }
+        ptr++;
     }
 }
 
@@ -118,6 +124,20 @@ static void syscall_handler(struct intr_frame *f) {
                 close(fd);
             }
             break;
+        case SYS_READ:
+            check_address(esp + 4);
+            check_address(esp + 8);
+            check_address(esp + 12);
+            {
+                int fd = *(int *)(esp + 4);
+                void *buffer = *(void **)(esp + 8);
+                unsigned size = *(unsigned *)(esp + 12);
+
+                check_valid_buffer(buffer, size); // 버퍼 전체 접근 가능성 확인
+
+                f->eax = read(fd, buffer, size);
+            }
+            break;
 
         default:
             exit(-1);
@@ -168,11 +188,15 @@ int write(int fd, const void *buffer, unsigned size) {
 
 bool create(const char *file, unsigned initial_size) {
     check_valid_string(file);
+    if (file == NULL) // NULL 포인터 검사
+    exit(-1);
     return filesys_create(file, initial_size);
 }
 
 int open(const char *file) {
     check_valid_string(file);
+    if (file == NULL) // NULL 포인터 검사
+    exit(-1);
     struct thread *cur = thread_current();
     struct file *f = filesys_open(file);
 
