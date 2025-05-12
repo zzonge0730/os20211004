@@ -11,6 +11,7 @@
 #include "devices/input.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include <string.h>
 
 // 함수 선언
 void halt(void);
@@ -227,5 +228,32 @@ void close(int fd) {
         file_close(cur->fd_table[fd]);
         cur->fd_table[fd] = NULL;
     }
+}
+
+
+int read(int fd, void *buffer, unsigned size) {
+    check_valid_buffer(buffer, size);
+    struct thread *cur = thread_current();
+
+    if (fd == 0) {
+        unsigned i;
+        for (i = 0; i < size; i++)
+            ((char *)buffer)[i] = input_getc();
+        return size;
+    }
+
+    if (fd < 2 || fd >= FD_MAX || cur->fd_table[fd] == NULL)
+        return -1;
+
+    char *kbuf = palloc_get_page(0);
+    if (!kbuf) return -1;
+
+    int bytes = file_read(cur->fd_table[fd], kbuf, size);
+    if (bytes > 0) {
+        memcpy(buffer, kbuf, bytes);
+    }
+
+    palloc_free_page(kbuf);
+    return bytes;
 }
 
