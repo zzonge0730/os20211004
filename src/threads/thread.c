@@ -111,11 +111,7 @@ thread_init (void)
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
   int i;
-<<<<<<< HEAD
   struct thread *t = initial_thread;
-=======
-  struct thread *t = initial_thread;  
->>>>>>> 6c8c0862f8315773bcb178dc3ebc6afa65f24c3c
   for (i = 0; i < FD_MAX; i++) {
       t->fd_table[i] = NULL;
   }
@@ -510,7 +506,6 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
-  list_elem_init(&t->elem);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

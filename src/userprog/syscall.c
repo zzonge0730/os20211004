@@ -56,7 +56,7 @@ void check_valid_string(const char *str) {
 static void syscall_handler(struct intr_frame *f) {
     void *esp = f->esp;
     check_address(esp);
-    check_address(esp + 3);
+
     int syscall_num = *(int *)esp;
 
     switch (syscall_num) {
@@ -131,9 +131,7 @@ void halt(void) {
     shutdown_power_off();
 }
 
-// syscall.c (exit 함수 내부)
 void exit(int status) {
-<<<<<<< HEAD
     struct thread *cur = thread_current();
     int i;
 
@@ -148,14 +146,7 @@ void exit(int status) {
     }
     printf("%s: exit(%d)\n", cur->name, status);
     thread_exit();
-=======
-  struct thread *cur = thread_current();
-  cur->exit_status = status;
-  process_exit();
-  thread_exit();
->>>>>>> 6c8c0862f8315773bcb178dc3ebc6afa65f24c3c
 }
-
 
 int write(int fd, const void *buffer, unsigned size) {
     check_valid_buffer(buffer, size);
