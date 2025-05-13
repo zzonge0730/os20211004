@@ -22,6 +22,9 @@ int open(const char *file);
 void close(int fd);
 int read(int fd, void *buffer, unsigned size);
 int filesize(int fd);
+bool remove(const char *file);
+void seek(int fd, unsigned position);
+unsigned tell(int fd);
 
 void check_address(void *addr);
 void check_valid_buffer(const void *buffer, unsigned size);
@@ -144,6 +147,31 @@ static void syscall_handler(struct intr_frame *f) {
             {
                 int fd = *(int *)(esp + 4);
                 f->eax = filesize(fd);
+            }
+            break;
+        case SYS_REMOVE:
+            check_address(esp + 4);
+            {
+                const char *file = *(const char **)(esp + 4);
+                check_valid_string(file);
+                f->eax = remove(file);
+            }
+            break;
+        case SYS_SEEK:
+            check_address(esp + 4);
+            check_address(esp + 8);
+            {
+                int fd = *(int *)(esp + 4);
+                unsigned pos = *(unsigned *)(esp + 8);
+                seek(fd, pos);
+            }
+            break;
+
+        case SYS_TELL:
+            check_address(esp + 4);
+            {
+                int fd = *(int *)(esp + 4);
+                f->eax = tell(fd);
             }
             break;
 
@@ -270,4 +298,25 @@ int filesize(int fd) {
         return -1;
 
     return file_length(cur->fd_table[fd]);
+}
+
+bool remove(const char *file) {
+    check_valid_string(file);
+    if (file == NULL)
+        exit(-1);
+    return filesys_remove(file);
+}
+
+void seek(int fd, unsigned position) {
+    struct thread *cur = thread_current();
+    if (fd < 2 || fd >= 128 || cur->fd_table[fd] == NULL)
+        return;
+    file_seek(cur->fd_table[fd], position);
+}
+
+unsigned tell(int fd) {
+    struct thread *cur = thread_current();
+    if (fd < 2 || fd >= 128 || cur->fd_table[fd] == NULL)
+        return -1;
+    return file_tell(cur->fd_table[fd]);
 }
