@@ -324,6 +324,7 @@ void
 thread_exit (void) 
 {
   ASSERT (!intr_context ());
+  process_exit();
   struct thread *cur = thread_current();
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
@@ -506,7 +507,19 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
+
+#ifdef USERPROG
+  t->exited = false;
+  t->exit_status = -1;
+  t->waited_on = false;
+  t->parent_thread = NULL;
+
+  sema_init(&t->exec_sema, 0);   
+  sema_init(&t->wait_sema, 0); 
+  t->load_success = false;
+#endif
 }
+
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
    returns a pointer to the frame's base. */
@@ -621,3 +634,14 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+
+struct thread *get_thread_by_tid(tid_t tid) {
+    struct list_elem *e;
+    for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
+        struct thread *t = list_entry(e, struct thread, allelem);
+        if (t->tid == tid)
+            return t;
+    }
+    return NULL;
+}

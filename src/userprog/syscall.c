@@ -174,7 +174,23 @@ static void syscall_handler(struct intr_frame *f) {
                 f->eax = tell(fd);
             }
             break;
+        case SYS_EXEC:
+            check_address(esp + 4);
+            {
+                const char *cmd_line = *(const char **)(esp + 4);
+                check_valid_string(cmd_line);
+                f->eax = process_execute(cmd_line); 
+            }
+            break;
 
+        case SYS_WAIT:
+            check_address(esp + 4);
+            {
+                tid_t pid = *(tid_t *)(esp + 4);
+                f->eax = process_wait(pid);
+            }
+            break;
+                            
         default:
             exit(-1);
             break;

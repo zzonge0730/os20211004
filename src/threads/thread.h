@@ -109,12 +109,13 @@ struct thread
       struct thread *parent_thread; //  부모 스레드 포인터 (parent-child 관계)
       struct semaphore exec_sema; // 자식의 exec 성공 여부를 부모가 기다릴 세마포어
       bool load_success;          // exec 성공 여부
-
+      struct file *executable;
    #endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
+struct thread *get_thread_by_tid(tid_t tid);
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

@@ -38,59 +38,67 @@ process_execute(const char *cmd_line) {
     }
 
     struct thread *child = get_thread_by_tid(tid);
-    if (child == NULL)
+    if (child == NULL) {
         return -1;
+    }
+    if (child->parent_thread != thread_current()) {
+        return -1;
+    }
 
-    sema_down(&child->exec_sema);      // 자식의 load 결과를 기다림
+
+    // 현재 스레드를 부모로 지정
+    child->parent_thread = thread_current();
+
+    // 자식의 exec 결과를 기다림
+    sema_down(&child->exec_sema);
     if (!child->load_success)
         return -1;
 
     return tid;
 }
 
-
-/* A thread function that loads a user process and starts it
-   running. */
-/* Starts a user process by loading the executable and setting up the stack. */
 static void
-start_process(void *cmd_line_)
-{
+start_process(void *cmd_line_) {
     char *cmd_line = cmd_line_;
     struct intr_frame if_;
     bool success;
     struct thread *cur = thread_current();
     void *esp;
     int i;
-    sema_init(&cur->exec_sema, 0); 
-    /* Initialize interrupt frame */
+
     memset(&if_, 0, sizeof if_);
     if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
 
-    /* Parse cmd_line into argv */
+    // 인자 파싱
     char *argv[128];
     int argc = 0;
     char *token, *save_ptr;
-    for (token = strtok_r(cmd_line, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr)) {
+    for (token = strtok_r(cmd_line, " ", &save_ptr); token != NULL;
+         token = strtok_r(NULL, " ", &save_ptr)) {
         argv[argc++] = token;
     }
-    argv[argc] = NULL;  // NULL-terminate
-    strlcpy (cur->name, argv[0], sizeof cur->name);
-    /* Load the executable (argv[0]) */
+    argv[argc] = NULL;
+
+    strlcpy(cur->name, argv[0], sizeof cur->name);
+
+    // 실제 로딩 수행
     success = load(argv[0], &if_.eip, &if_.esp);
 
-    /* Load 실패하면 exit */
+    // 부모에게 로딩 성공 여부 전달
+    cur->load_success = success;
+    sema_up(&cur->exec_sema);
+
     if (!success) {
         palloc_free_page(cmd_line);
         thread_exit();
     }
 
-    /* Setup Stack */
+    // 사용자 스택 구성
     esp = if_.esp;
     char *arg_addr[128];
 
-    // (1) Push argument strings onto stack (역순으로)
     for (i = argc - 1; i >= 0; i--) {
         size_t len = strlen(argv[i]) + 1;
         esp -= len;
@@ -98,57 +106,39 @@ start_process(void *cmd_line_)
         arg_addr[i] = (char *)esp;
     }
 
-    // (2) Word-align (4 byte 정렬)
     uintptr_t align = (uintptr_t)esp % 4;
     if (align != 0) {
         esp -= align;
         memset(esp, 0, align);
     }
 
-    // (3) Push NULL sentinel
     esp -= sizeof(char *);
     *(char **)esp = NULL;
 
-    // (4) Push addresses of arguments
     for (i = argc - 1; i >= 0; i--) {
         esp -= sizeof(char *);
         *(char **)esp = arg_addr[i];
     }
 
-    // (5) Save argv pointer (지금 esp가 argv[0] 배열의 주소를 가리킴)
     char **argv_start = (char **)esp;
 
-    // (6) Push argv
     esp -= sizeof(char **);
     *(char ***)esp = argv_start;
 
-    // (7) Push argc
     esp -= sizeof(int);
     *(int *)esp = argc;
 
-    // (8) Push fake return address
     esp -= sizeof(void *);
     *(void **)esp = NULL;
 
-    // (9) Update if_.esp
     if_.esp = esp;
 
-    success = load(argv[0], &if_.eip, &if_.esp);
-
-    cur->load_success = success;
-    sema_up(&cur->exec_sema);          // 부모에게 결과 알림
-
-    if (!success)
-        thread_exit();  // 실패 시 종료
-
-        
     palloc_free_page(cmd_line);
 
     asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
 
     NOT_REACHED();
 }
-
 
 
 
@@ -163,14 +153,24 @@ start_process(void *cmd_line_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
-{
-  int i;
-  for (i = 0; i < 1000; i++) {
-    thread_yield();
-  }
-  return 1;
+process_wait(tid_t child_tid) {
+    struct thread *cur = thread_current();
+    struct thread *child = get_thread_by_tid(child_tid);
+
+    if (child == NULL || child->parent_thread != cur)
+        return -1;
+
+    if (child->waited_on)
+        return -1;
+
+    child->waited_on = true;
+
+    // 자식 종료 기다림
+    sema_down(&child->wait_sema);
+
+    return child->exit_status;
 }
+
 
 /* Free the current process's resources. */
 void
@@ -178,7 +178,13 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+  sema_up(&cur->wait_sema);
 
+  if (cur->executable != NULL) {
+    file_allow_write(cur->executable);
+    file_close(cur->executable);
+    cur->executable = NULL;
+  }
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -388,12 +394,12 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
-
+  t->executable = file;
+  file_deny_write(file);
   success = true;
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
   return success;
 }
 
