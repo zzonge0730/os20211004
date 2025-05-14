@@ -88,7 +88,7 @@ static void syscall_handler(struct intr_frame *f) {
                 void *buffer = *(void **)(esp + 8);
                 unsigned size = *(unsigned *)(esp + 12);
 
-                // 🛡️ 버퍼 전체 검사 추가
+                // 버퍼 전체 검사 추가
                 check_valid_buffer(buffer, size);
 
                 f->eax = write(fd, buffer, size);
@@ -102,7 +102,7 @@ static void syscall_handler(struct intr_frame *f) {
                 const char *file = *(const char **)(esp + 4);
                 unsigned initial_size = *(unsigned *)(esp + 8);
 
-                // 🛡️ 파일명 전체 검사 추가
+                // 파일명 전체 검사 추가
                 check_valid_string(file);
 
                 f->eax = create(file, initial_size);
@@ -114,7 +114,7 @@ static void syscall_handler(struct intr_frame *f) {
             {
                 const char *file = *(const char **)(esp + 4);
 
-                // 🛡️ 파일명 전체 검사 추가
+                // 파일명 전체 검사 추가
                 check_valid_string(file);
 
                 f->eax = open(file);

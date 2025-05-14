@@ -37,11 +37,11 @@ process_execute(const char *cmd_line) {
         return TID_ERROR;
     }
 
-    // ✅ child_status 구조체 메모리 확보 및 초기화
+    // child_status 구조체 메모리 확보 및 초기화
     struct child_status *cs = malloc(sizeof(struct child_status));
     if (cs == NULL) return TID_ERROR;
 
-    memset(cs, 0, sizeof(struct child_status));  // 🛡️ 모든 필드 안전 초기화
+    memset(cs, 0, sizeof(struct child_status));  // 모든 필드 안전 초기화
     cs->tid = tid;
     sema_init(&cs->sema, 0);
 
