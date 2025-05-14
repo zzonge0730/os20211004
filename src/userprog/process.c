@@ -37,25 +37,36 @@ process_execute(const char *cmd_line) {
         return TID_ERROR;
     }
 
+    // ✅ child_status 구조체 메모리 확보 및 초기화
+    struct child_status *cs = malloc(sizeof(struct child_status));
+    if (cs == NULL) return TID_ERROR;
+
+    memset(cs, 0, sizeof(struct child_status));  // 🛡️ 모든 필드 안전 초기화
+    cs->tid = tid;
+    sema_init(&cs->sema, 0);
+
+
+    // 자식 리스트에 추가
+    list_push_back(&thread_current()->children, &cs->elem);
+
+    // 자식 스레드 포인터 가져오기
     struct thread *child = get_thread_by_tid(tid);
     if (child == NULL) {
         return -1;
     }
-    if (child->parent_thread != thread_current()) {
+
+    child->self_status = cs;
+    child->parent_thread = thread_current();
+
+    // exec 성공 여부를 기다림
+    sema_down(&child->exec_sema);
+    if (!child->load_success) {
         return -1;
     }
 
-
-    // 현재 스레드를 부모로 지정
-    child->parent_thread = thread_current();
-
-    // 자식의 exec 결과를 기다림
-    sema_down(&child->exec_sema);
-    if (!child->load_success)
-        return -1;
-
     return tid;
 }
+
 
 static void
 start_process(void *cmd_line_) {
@@ -152,23 +163,32 @@ start_process(void *cmd_line_) {
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int
-process_wait(tid_t child_tid) {
+int process_wait(tid_t child_tid) {
     struct thread *cur = thread_current();
-    struct thread *child = get_thread_by_tid(child_tid);
+    struct list_elem *e;
+    struct child_status *cs = NULL;
 
-    if (child == NULL || child->parent_thread != cur)
+    // 부모의 children 리스트에서 자식 상태 찾기
+    for (e = list_begin(&cur->children); e != list_end(&cur->children); e = list_next(e)) {
+        struct child_status *entry = list_entry(e, struct child_status, elem);
+        if (entry->tid == child_tid) {
+            cs = entry;
+            break;
+        }
+    }
+
+    if (cs == NULL || cs->has_been_waited)
         return -1;
 
-    if (child->waited_on)
-        return -1;
+    cs->has_been_waited = true;
 
-    child->waited_on = true;
+    if (!cs->has_exited)
+        sema_down(&cs->sema);
 
-    // 자식 종료 기다림
-    sema_down(&child->wait_sema);
-
-    return child->exit_status;
+    int status = cs->exit_status;
+    list_remove(&cs->elem);
+    free(cs);
+    return status;
 }
 
 
@@ -178,6 +198,12 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+  if (cur->self_status != NULL) {
+      cur->self_status->exit_status = cur->exit_status;
+      cur->self_status->has_exited = true;
+      sema_up(&cur->self_status->sema);
+  }
+
   sema_up(&cur->wait_sema);
 
   if (cur->executable != NULL) {

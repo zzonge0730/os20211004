@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/synch.h"
+#include <stdlib.h>
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -110,11 +111,22 @@ struct thread
       struct semaphore exec_sema; // 자식의 exec 성공 여부를 부모가 기다릴 세마포어
       bool load_success;          // exec 성공 여부
       struct file *executable;
+      struct list children;
+      struct child_status *self_status;  // child가 자신의 상태를 부모와 공유
    #endif
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
+
+struct child_status {
+    tid_t tid;
+    int exit_status;
+    bool has_exited;
+    bool has_been_waited;
+    struct semaphore sema;
+    struct list_elem elem;
+};
 struct thread *get_thread_by_tid(tid_t tid);
 
 /* If false (default), use round-robin scheduler.
