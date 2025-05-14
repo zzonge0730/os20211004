@@ -26,23 +26,28 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
-process_execute (const char *cmd_line)
-{
-  char *fn_copy;
-  tid_t tid;
+process_execute(const char *cmd_line) {
+    char *fn_copy = palloc_get_page(0);
+    if (fn_copy == NULL) return TID_ERROR;
+    strlcpy(fn_copy, cmd_line, PGSIZE);
 
-  fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
-    return TID_ERROR;
-  strlcpy (fn_copy, cmd_line, PGSIZE);
+    tid_t tid = thread_create(fn_copy, PRI_DEFAULT, start_process, fn_copy);
+    if (tid == TID_ERROR) {
+        palloc_free_page(fn_copy);
+        return TID_ERROR;
+    }
 
-  // 새 스레드 생성
-  tid = thread_create(fn_copy, PRI_DEFAULT, start_process, fn_copy); // fn_copy 그대로 전달
-  if (tid == TID_ERROR)
-    palloc_free_page(fn_copy);
+    struct thread *child = get_thread_by_tid(tid);
+    if (child == NULL)
+        return -1;
 
-  return tid;
+    sema_down(&child->exec_sema);      // 자식의 load 결과를 기다림
+    if (!child->load_success)
+        return -1;
+
+    return tid;
 }
+
 
 /* A thread function that loads a user process and starts it
    running. */
@@ -56,7 +61,7 @@ start_process(void *cmd_line_)
     struct thread *cur = thread_current();
     void *esp;
     int i;
-
+    sema_init(&cur->exec_sema, 0); 
     /* Initialize interrupt frame */
     memset(&if_, 0, sizeof if_);
     if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
@@ -128,6 +133,15 @@ start_process(void *cmd_line_)
     // (9) Update if_.esp
     if_.esp = esp;
 
+    success = load(argv[0], &if_.eip, &if_.esp);
+
+    cur->load_success = success;
+    sema_up(&cur->exec_sema);          // 부모에게 결과 알림
+
+    if (!success)
+        thread_exit();  // 실패 시 종료
+
+        
     palloc_free_page(cmd_line);
 
     asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");

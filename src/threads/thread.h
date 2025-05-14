@@ -107,6 +107,9 @@ struct thread
       int exit_status;             //  자식 프로세스 종료 상태
       bool waited_on;              //  부모가 이미 wait 했는지 체크
       struct thread *parent_thread; //  부모 스레드 포인터 (parent-child 관계)
+      struct semaphore exec_sema; // 자식의 exec 성공 여부를 부모가 기다릴 세마포어
+      bool load_success;          // exec 성공 여부
+
    #endif
 
     /* Owned by thread.c. */
