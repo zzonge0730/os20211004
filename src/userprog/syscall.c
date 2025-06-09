@@ -13,7 +13,7 @@
 #include "filesys/filesys.h"
 #include <string.h>
 #include "userprog/process.h"
-
+#include "vm/page.h"
 // 함수 선언
 void halt(void);
 void exit(int status);
@@ -30,7 +30,7 @@ unsigned tell(int fd);
 void check_address(void *addr);
 void check_valid_buffer(const void *buffer, unsigned size);
 void check_valid_string(const char *str);
-
+void check_syscall_args(void *esp, int num_args);
 // syscall 핸들러
 static void syscall_handler(struct intr_frame *);
 
@@ -40,39 +40,45 @@ void syscall_init(void) {
 }
 
 void check_address(void *addr) {
-    // 주소가 NULL이거나 커널 영역을 가리키는지 기본적인 검사만 수행합니다.
     if (addr == NULL || !is_user_vaddr(addr)) {
         exit(-1);
     }
-    // pagedir_get_page()를 통한 물리 페이지 매핑 확인은 제거합니다.
-    // 실제 접근은 페이지 폴트 핸들러가 처리하도록 합니다.
 }
 
 
+
+// 페이지 단위 버퍼 검사
 void check_valid_buffer(const void *buffer, unsigned size) {
-    char *buf = (char *)buffer;
-    unsigned i;
-    for (i = 0; i < size; i++) {
-        check_address(buf + i);
+    uintptr_t start = (uintptr_t) buffer;
+    uintptr_t end = start + size;
+    uintptr_t page_start = start & ~(PGSIZE - 1);
+    uintptr_t addr;
+    for (addr = page_start; addr < end; addr += PGSIZE) {
+        check_address((void *)addr);
     }
 }
 
+// 문자열 검사 (문자 단위, 페이지 단위 최적화 가능)
 void check_valid_string(const char *str) {
     if (str == NULL)
         exit(-1);
-    const char *ptr = str;
+
+    uintptr_t ptr = (uintptr_t) str;
     while (true) {
         check_address((void *)ptr);
-        if (*ptr == '\0') {
+        if (*(char *)ptr == '\0')
             break;
-        }
         ptr++;
     }
 }
-
+void check_syscall_args(void *esp, int num_args) {
+    size_t size = 4 * (num_args + 1); // syscall_num + args
+    check_valid_buffer(esp, size);
+}
 static void syscall_handler(struct intr_frame *f) {
     void *esp = f->esp;
-    check_address(esp);
+
+    check_syscall_args(esp, 3);
 
     int syscall_num = *(int *)esp;
 
@@ -82,20 +88,17 @@ static void syscall_handler(struct intr_frame *f) {
             break;
 
         case SYS_EXIT:
-            check_address(esp + 4);
+            check_syscall_args(esp, 1);
             exit(*(int *)(esp + 4));
             break;
 
         case SYS_WRITE:
-            check_address(esp + 4);
-            check_address(esp + 8);
-            check_address(esp + 12);
+            check_syscall_args(esp, 3);
             {
                 int fd = *(int *)(esp + 4);
                 void *buffer = *(void **)(esp + 8);
                 unsigned size = *(unsigned *)(esp + 12);
 
-                // 버퍼 전체 검사 추가
                 check_valid_buffer(buffer, size);
 
                 f->eax = write(fd, buffer, size);
@@ -103,13 +106,11 @@ static void syscall_handler(struct intr_frame *f) {
             break;
 
         case SYS_CREATE:
-            check_address(esp + 4);
-            check_address(esp + 8);
+            check_syscall_args(esp, 2);
             {
                 const char *file = *(const char **)(esp + 4);
                 unsigned initial_size = *(unsigned *)(esp + 8);
 
-                // 파일명 전체 검사 추가
                 check_valid_string(file);
 
                 f->eax = create(file, initial_size);
@@ -117,11 +118,10 @@ static void syscall_handler(struct intr_frame *f) {
             break;
 
         case SYS_OPEN:
-            check_address(esp + 4);
+            check_syscall_args(esp, 1);
             {
                 const char *file = *(const char **)(esp + 4);
 
-                // 파일명 전체 검사 추가
                 check_valid_string(file);
 
                 f->eax = open(file);
@@ -129,44 +129,45 @@ static void syscall_handler(struct intr_frame *f) {
             break;
 
         case SYS_CLOSE:
-            check_address(esp + 4);
+            check_syscall_args(esp, 1);
             {
                 int fd = *(int *)(esp + 4);
                 close(fd);
             }
             break;
+
         case SYS_READ:
-            check_address(esp + 4);
-            check_address(esp + 8);
-            check_address(esp + 12);
+            check_syscall_args(esp, 3);
             {
                 int fd = *(int *)(esp + 4);
                 void *buffer = *(void **)(esp + 8);
                 unsigned size = *(unsigned *)(esp + 12);
 
-                check_valid_buffer(buffer, size); // 버퍼 전체 접근 가능성 확인
+                check_valid_buffer(buffer, size);
 
                 f->eax = read(fd, buffer, size);
             }
             break;
+
         case SYS_FILESIZE:
-            check_address(esp + 4);
+            check_syscall_args(esp, 1);
             {
                 int fd = *(int *)(esp + 4);
                 f->eax = filesize(fd);
             }
             break;
+
         case SYS_REMOVE:
-            check_address(esp + 4);
+            check_syscall_args(esp, 1);
             {
                 const char *file = *(const char **)(esp + 4);
                 check_valid_string(file);
                 f->eax = remove(file);
             }
             break;
+
         case SYS_SEEK:
-            check_address(esp + 4);
-            check_address(esp + 8);
+            check_syscall_args(esp, 2);
             {
                 int fd = *(int *)(esp + 4);
                 unsigned pos = *(unsigned *)(esp + 8);
@@ -175,34 +176,36 @@ static void syscall_handler(struct intr_frame *f) {
             break;
 
         case SYS_TELL:
-            check_address(esp + 4);
+            check_syscall_args(esp, 1);
             {
                 int fd = *(int *)(esp + 4);
                 f->eax = tell(fd);
             }
             break;
+
         case SYS_EXEC:
-            check_address(esp + 4);
+            check_syscall_args(esp, 1);
             {
                 const char *cmd_line = *(const char **)(esp + 4);
                 check_valid_string(cmd_line);
-                f->eax = process_execute(cmd_line); 
+                f->eax = process_execute(cmd_line);
             }
             break;
 
         case SYS_WAIT:
-            check_address(esp + 4);
+            check_syscall_args(esp, 1);
             {
                 tid_t pid = *(tid_t *)(esp + 4);
                 f->eax = process_wait(pid);
             }
             break;
-                            
+
         default:
             exit(-1);
             break;
     }
 }
+
 
 
 // syscall 함수들
