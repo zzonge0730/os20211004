@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "threads/synch.h"
 #include <stdlib.h>
+#include <hash.h>
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -114,7 +115,7 @@ struct thread
       struct list children;
       struct child_status *self_status;  // child가 자신의 상태를 부모와 공유
    #endif
-
+      struct hash spt;
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };

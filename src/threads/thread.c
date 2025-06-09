@@ -507,7 +507,6 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
-
 #ifdef USERPROG
   list_init(&t->children); 
   t->exited = false;

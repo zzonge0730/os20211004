@@ -61,9 +61,12 @@ userprog_SRC += userprog/syscall.c	# System call handler.
 userprog_SRC += userprog/gdt.c		# GDT initialization.
 userprog_SRC += userprog/tss.c		# TSS management.
 userprog_SRC += vm/frame.c
+userprog_SRC += vm/page.c
 #No virtual memory code yet.
 #vm_SRC = vm/file.c			# Some file.
-
+vm_SRC += vm/page.c	
+vm_SRC += vm/frame.c	
+vm_SRC += vm/swap.c	
 # Filesystem code.
 filesys_SRC  = filesys/filesys.c	# Filesystem core.
 filesys_SRC += filesys/free-map.c	# Free sector bitmap.
@@ -108,3 +111,10 @@ Makefile: $(SRCDIR)/Makefile.build
 	cp $< $@
 
 -include $(DEPENDS)
+
+# Ensure build/vm directory exists for dependency files
+build/vm:
+	mkdir -p build/vm
+
+# Make sure this directory is created before anything builds
+all: | build/vm

@@ -62,6 +62,11 @@
     "file.h": "c",
     "syscall-nr.h": "c",
     "syscall.h": "c",
-    "synch.h": "c"
+    "synch.h": "c",
+    "malloc.h": "c",
+    "thread.h": "c",
+    "palloc.h": "c",
+    "page.h": "c",
+    "process.h": "c"
   }
 }

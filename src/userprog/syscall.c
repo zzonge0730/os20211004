@@ -216,7 +216,6 @@ void exit(int status) {
             cur->fd_table[i] = NULL;
         }
     }
-    printf("%s: exit(%d)\n", cur->name, status);
     thread_exit();
 }
 
