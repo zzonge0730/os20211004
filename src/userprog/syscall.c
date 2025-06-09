@@ -14,6 +14,8 @@
 #include <string.h>
 #include "userprog/process.h"
 #include "vm/page.h"
+#include "threads/malloc.h"
+
 // 함수 선언
 void halt(void);
 void exit(int status);
@@ -33,7 +35,7 @@ void check_valid_string(const char *str);
 void check_syscall_args(void *esp, int num_args);
 // syscall 핸들러
 static void syscall_handler(struct intr_frame *);
-
+static bool mmap_overlap(struct thread *t, void *addr, size_t size);
 // 초기화
 void syscall_init(void) {
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
@@ -199,7 +201,18 @@ static void syscall_handler(struct intr_frame *f) {
                 f->eax = process_wait(pid);
             }
             break;
-
+        case SYS_MMAP: {
+            int fd = *(int *)(f->esp + 4);
+            void *addr = *(void **)(f->esp + 8);
+            f->eax = mmap (fd, addr);
+            break;
+        }
+        case SYS_MUNMAP: {
+            mapid_t mapid = *(mapid_t *)(f->esp + 4);
+            munmap (mapid);
+            f->eax = 0; // 반환 값 무시 (void)
+            break;
+        }
         default:
             exit(-1);
             break;
@@ -247,26 +260,32 @@ bool create(const char *file, unsigned initial_size) {
 
 int open(const char *file) {
     check_valid_string(file);
-    if (file == NULL) // NULL 포인터 검사
-    exit(-1);
+    if (file == NULL)
+        exit(-1);
     struct thread *cur = thread_current();
     struct file *f = filesys_open(file);
 
     if (f == NULL)
         return -1;
 
+    // 실행파일이면 fd_table에 넣지 않음
+    if (strcmp(file, cur->name) == 0) {
+        file_close(f);
+        return -1;
+    }
+
     int i;
-    for (i = 2; i < 128; i++) {
+    for (i = 2; i < FD_MAX; i++) {
         if (cur->fd_table[i] == NULL) {
             cur->fd_table[i] = f;
             return i;
         }
     }
 
-    // fd_table이 꽉 찼으면 열었던 파일 닫기
     file_close(f);
     return -1;
 }
+
 
 
 void close(int fd) {
@@ -336,3 +355,131 @@ unsigned tell(int fd) {
         return -1;
     return file_tell(cur->fd_table[fd]);
 }
+
+mapid_t mmap(int fd, void *addr) {
+    struct thread *cur = thread_current();
+    struct file *file;
+    off_t length;
+    off_t offset;
+    size_t read_bytes, zero_bytes;
+    void *page_addr;
+
+    if (addr == NULL || pg_ofs(addr) != 0 || fd < 2 || fd >= FD_MAX)
+        return -1;
+
+    file = file_reopen(cur->fd_table[fd]);
+    if (file == NULL)
+        return -1;
+
+    length = file_length(file);
+    if (length == 0) {
+        file_close(file);
+        return -1;
+    }
+
+    if (mmap_overlap(cur, addr, length)) {
+        file_close(file);
+        return -1;
+    }
+
+    for (page_addr = addr; page_addr < addr + length; page_addr += PGSIZE) {
+        if (spt_find(page_addr) != NULL || page_addr >= PHYS_BASE) {
+            file_close(file);
+            return -1;
+        }
+    }
+
+    struct mmap_entry *mmapf = malloc(sizeof(struct mmap_entry));
+    if (mmapf == NULL) {
+        file_close(file);
+        return -1;
+    }
+
+    mmapf->id = cur->next_mapid++;
+    mmapf->file = file;
+    mmapf->addr = addr;
+    mmapf->size = length;
+
+    for (offset = 0; offset < length; offset += PGSIZE) {
+        struct page *p = malloc(sizeof(struct page));
+        if (p == NULL) {
+            file_close(file);
+            free(mmapf);
+            return -1;
+        }
+
+        read_bytes = (length - offset) < PGSIZE ? (length - offset) : PGSIZE;
+        zero_bytes = PGSIZE - read_bytes;
+
+        p->loc = PAGE_FILE;
+        p->file = file;
+        p->offset = offset;
+        p->upage = addr + offset;
+        p->read_bytes = read_bytes;
+        p->zero_bytes = zero_bytes;
+        p->writable = true;
+        p->owner = cur;
+
+        if (!spt_insert(p)) {
+            free(p);
+            file_close(file);
+            free(mmapf);
+            return -1;
+        }
+    }
+
+    list_push_back(&cur->mmap_list, &mmapf->elem);
+    return mmapf->id;
+}
+
+// 주소 중복 검사 함수
+static bool
+mmap_overlap (struct thread *t, void *addr, size_t size) 
+{
+    struct list_elem *e;
+    for (e = list_begin (&t->mmap_list); e != list_end (&t->mmap_list);
+         e = list_next (e)) {
+        struct mmap_entry *entry = list_entry (e, struct mmap_entry, elem);
+        if (addr < entry->addr + entry->size && 
+            addr + size > entry->addr) {
+            return true;
+        }
+    }
+    return false; 
+}
+// 매핑 검색 함수
+static struct mmap_entry *
+mmap_find (struct thread *t, mapid_t mapid) 
+{
+    struct list_elem *e;
+    for (e = list_begin (&t->mmap_list); e != list_end (&t->mmap_list);
+         e = list_next (e)) {
+        struct mmap_entry *entry = list_entry (e, struct mmap_entry, elem);
+        if (entry->id == mapid) return entry;
+    }
+    return NULL;
+}
+
+void munmap(mapid_t mapid) {
+    struct thread *cur = thread_current();
+    struct mmap_entry *entry = mmap_find(cur, mapid);
+    if (entry == NULL) return;
+
+    off_t ofs;
+    for (ofs = 0; ofs < entry->size; ofs += PGSIZE) {
+        void *page_addr = entry->addr + ofs;
+        if (pagedir_is_dirty(cur->pagedir, page_addr)) {
+            file_write_at(entry->file, page_addr,
+                          MIN(PGSIZE, entry->size - ofs), ofs);
+        }
+        void *kpage = pagedir_get_page(cur->pagedir, page_addr);
+        if (kpage != NULL)
+            frame_free(kpage);
+        pagedir_clear_page(cur->pagedir, page_addr);
+    }
+
+    file_close(entry->file);
+    list_remove(&entry->elem);
+    free(entry);
+}
+

@@ -86,6 +86,7 @@ typedef int tid_t;
 #define FD_MAX 128
 
 #define THREAD_MAGIC 0xcd6abf4b
+typedef int mapid_t;
 struct thread
   {
     /* Owned by thread.c. */
@@ -116,10 +117,18 @@ struct thread
       struct child_status *self_status;  // child가 자신의 상태를 부모와 공유
    #endif
       struct hash spt;
+      struct list mmap_list;      // mmap 매핑 목록
+      mapid_t next_mapid;         // 다음 매핑 ID
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
-
+struct mmap_entry {
+    mapid_t id;                 // 매핑 ID
+    struct file *file;          // 매핑된 파일 객체
+    void *addr;                 // 매핑 시작 주소
+    size_t size;                // 매핑 크기 (바이트)
+    struct list_elem elem;      // 리스트 요소
+};
 struct child_status {
     tid_t tid;
     int exit_status;

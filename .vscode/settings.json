@@ -69,6 +69,11 @@
     "page.h": "c",
     "process.h": "c",
     "debug.h": "c",
-    "pagedir.h": "c"
+    "pagedir.h": "c",
+    "filesys.h": "c",
+    "mmap.h": "c",
+    "init.h": "c",
+    "flags.h": "c",
+    "stdlib.h": "c"
   }
 }
