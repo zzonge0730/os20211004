@@ -12,6 +12,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include <string.h>
+#include "userprog/process.h"
 
 // 함수 선언
 void halt(void);
@@ -39,10 +40,14 @@ void syscall_init(void) {
 }
 
 void check_address(void *addr) {
-    if (addr == NULL || !is_user_vaddr(addr) || pagedir_get_page(thread_current()->pagedir, addr) == NULL) {
+    // 주소가 NULL이거나 커널 영역을 가리키는지 기본적인 검사만 수행합니다.
+    if (addr == NULL || !is_user_vaddr(addr)) {
         exit(-1);
     }
+    // pagedir_get_page()를 통한 물리 페이지 매핑 확인은 제거합니다.
+    // 실제 접근은 페이지 폴트 핸들러가 처리하도록 합니다.
 }
+
 
 void check_valid_buffer(const void *buffer, unsigned size) {
     char *buf = (char *)buffer;
@@ -53,6 +58,8 @@ void check_valid_buffer(const void *buffer, unsigned size) {
 }
 
 void check_valid_string(const char *str) {
+    if (str == NULL)
+        exit(-1);
     const char *ptr = str;
     while (true) {
         check_address((void *)ptr);
@@ -205,19 +212,10 @@ void halt(void) {
 
 void exit(int status) {
     struct thread *cur = thread_current();
-    int i;
-
     cur->exit_status = status;
-
-    // 열린 파일 다 닫기
-    for (i = 2; i < 128; i++) {
-        if (cur->fd_table[i] != NULL) {
-            file_close(cur->fd_table[i]);
-            cur->fd_table[i] = NULL;
-        }
-    }
-    thread_exit();
+    thread_exit();  // process_exit()에서 자원 정리 담당
 }
+
 
 int write(int fd, const void *buffer, unsigned size) {
     check_valid_buffer(buffer, size);

@@ -35,6 +35,7 @@ process_execute(const char *cmd_line) {
         frame_table_init();
         frame_table_initialized = true;
     }
+    if (cmd_line == NULL) return TID_ERROR;
     char *fn_copy = palloc_get_page(0);
     if (fn_copy == NULL) return TID_ERROR;
     strlcpy(fn_copy, cmd_line, PGSIZE);
@@ -79,6 +80,9 @@ process_execute(const char *cmd_line) {
 static void
 start_process(void *cmd_line_) {
     char *cmd_line = cmd_line_;
+    if (cmd_line == NULL || cmd_line[0] == '\0') {
+        thread_exit();
+    }    
     struct intr_frame if_;
     bool success;
     struct thread *cur = thread_current();
@@ -199,42 +203,60 @@ int process_wait(tid_t child_tid) {
     return status;
 }
 
-
+void page_destroy(struct hash_elem *e, void *aux UNUSED) {
+    struct page *p = hash_entry(e, struct page, elem);
+    free(p);
+}
 /* Free the current process's resources. */
-void
-process_exit (void)
-{
-  struct thread *cur = thread_current ();
-  uint32_t *pd;
-  if (cur->self_status != NULL) {
-      cur->self_status->exit_status = cur->exit_status;
-      cur->self_status->has_exited = true;
-      sema_up(&cur->self_status->sema);
-  }
-  printf("%s: exit(%d)\n", cur->name, cur->exit_status);
-  sema_up(&cur->wait_sema);
+void process_exit(void) {
+    struct thread *cur = thread_current();
 
-  if (cur->executable != NULL) {
-    file_allow_write(cur->executable);
-    file_close(cur->executable);
-    cur->executable = NULL;
-  }
-  /* Destroy the current process's page directory and switch back
-     to the kernel-only page directory. */
-  pd = cur->pagedir;
-  if (pd != NULL) 
-    {
-      /* Correct ordering here is crucial.  We must set
-         cur->pagedir to NULL before switching page directories,
-         so that a timer interrupt can't switch back to the
-         process page directory.  We must activate the base page
-         directory before destroying the process's page
-         directory, or our active page directory will be one
-         that's been freed (and cleared). */
-      cur->pagedir = NULL;
-      pagedir_activate (NULL);
-      pagedir_destroy (pd);
+    // 1. Supplemental Page Table 완전 해제
+    struct hash *spt = &cur->spt;
+    hash_clear(spt, page_destroy);
+
+    // 2. 자식 리스트 완전 정리
+    struct list_elem *e, *next;
+    for (e = list_begin(&cur->children); e != list_end(&cur->children); e = next) {
+        next = list_next(e);
+        struct child_status *cs = list_entry(e, struct child_status, elem);
+        list_remove(&cs->elem);
+        free(cs);
     }
+
+    // 3. 열린 파일 모두 닫기
+    int fd;
+    for (fd = 2; fd < FD_MAX; fd++) {
+        if (cur->fd_table[fd] != NULL) {
+            file_close(cur->fd_table[fd]);
+            cur->fd_table[fd] = NULL;
+        }
+    }
+
+    // 4. 실행중인 파일 닫기 (allow_write 포함)
+    if (cur->executable != NULL) {
+        file_allow_write(cur->executable);
+        file_close(cur->executable);
+        cur->executable = NULL;
+    }
+
+    // 5. 페이지 디렉토리 해제
+    uint32_t *pd = cur->pagedir;
+    if (pd != NULL) {
+        cur->pagedir = NULL;
+        pagedir_activate(NULL);
+        pagedir_destroy(pd);
+    }
+
+    // 6. 부모에게 종료 상태 전달
+    if (cur->self_status != NULL) {
+        cur->self_status->exit_status = cur->exit_status;
+        cur->self_status->has_exited = true;
+        sema_up(&cur->self_status->sema);
+    }
+    sema_up(&cur->wait_sema);
+
+    printf("%s: exit(%d)\n", cur->name, cur->exit_status);
 }
 
 /* Sets up the CPU for running user code in the current

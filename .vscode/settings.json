@@ -67,6 +67,8 @@
     "thread.h": "c",
     "palloc.h": "c",
     "page.h": "c",
-    "process.h": "c"
+    "process.h": "c",
+    "debug.h": "c",
+    "pagedir.h": "c"
   }
 }

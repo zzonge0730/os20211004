@@ -131,7 +131,8 @@ static void page_fault(struct intr_frame *f) {
 
     
 
-    if (fault_addr == NULL || !is_user_vaddr(fault_addr)) {
+    if (!is_user_vaddr(fault_addr) || fault_addr >= PHYS_BASE) {
+        thread_current()->exit_status = -1;
         thread_exit();
     }
 

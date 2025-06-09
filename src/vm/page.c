@@ -6,6 +6,7 @@
 #include "filesys/file.h"
 #include <string.h>
 #include "userprog/process.h"
+#include "vm/swap.h"
 
 static unsigned page_hash(const struct hash_elem *e, void *aux UNUSED);
 static bool page_less(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED);
@@ -46,30 +47,41 @@ bool spt_remove(void *upage) {
 
 bool spt_load(struct page *p) {
   ASSERT(p != NULL);
-  ASSERT(p->loc == PAGE_FILE);  // 현재는 file-backed 페이지만 처리
 
   // 1. 물리 프레임 할당
   void *kpage = frame_alloc(PAL_USER, p->upage);
   if (kpage == NULL)
     return false;
 
-  // 2. 파일에서 읽을 데이터 채우기
-  off_t read_bytes = file_read_at(p->file, kpage, p->read_bytes, p->offset);
-  if (read_bytes != (off_t)p->read_bytes) {
-    frame_free(kpage);
-    return false;
-  }
+    if (p->loc == PAGE_FILE) {
+        // 2. 파일에서 데이터 읽기
+        off_t read_bytes = file_read_at(p->file, kpage, p->read_bytes, p->offset);
+        if (read_bytes != (off_t)p->read_bytes) {
+            frame_free(kpage);
+            return false;
+        }
+        // 3. 남은 부분 0으로 채움
+        memset((uint8_t *)kpage + p->read_bytes, 0, p->zero_bytes);
 
-  // 3. 나머지 부분은 0으로 초기화
-  memset(kpage + p->read_bytes, 0, p->zero_bytes);
+    } else if (p->loc == PAGE_SWAP) {
+        // swap에서 복원
+        swap_in(p->swap_index, kpage);
+        // 복원 후 SPT도 file-backed 또는 zero 등으로 상태 갱신 (구현 정책에 맞게)
+        p->loc = PAGE_FILE;  // 혹은 PAGE_ZERO 등 원래 상태로
+    } else if (p->loc == PAGE_ZERO) {
+        // zero page
+        memset(kpage, 0, PGSIZE);
+    } else {
+        frame_free(kpage);
+        return false;
+    }
 
-  // 4. 사용자 주소 공간에 매핑
-  if (!install_page(p->upage, kpage, p->writable)) {
-    frame_free(kpage);
-    return false;
-  }
-
-  return true;
+    // 4. 사용자 주소 공간에 매핑
+    if (!install_page(p->upage, kpage, p->writable)) {
+        frame_free(kpage);
+        return false;
+    }
+    return true;
 }
 
 bool is_stack_access(void *addr, void *esp) {
@@ -81,4 +93,11 @@ bool stack_growth(void *upage) {
   if (kpage == NULL)
     return false;
   return install_page(upage, kpage, true);
+}
+
+struct page *spt_find_in_thread(struct thread *t, void *upage) {
+    struct page temp;
+    temp.upage = pg_round_down(upage);
+    struct hash_elem *e = hash_find(&t->spt, &temp.elem);
+    return e != NULL ? hash_entry(e, struct page, elem) : NULL;
 }
