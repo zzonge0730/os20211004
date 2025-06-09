@@ -60,8 +60,8 @@ userprog_SRC += userprog/exception.c	# User exception handler.
 userprog_SRC += userprog/syscall.c	# System call handler.
 userprog_SRC += userprog/gdt.c		# GDT initialization.
 userprog_SRC += userprog/tss.c		# TSS management.
-
-# No virtual memory code yet.
+userprog_SRC += vm/frame.c
+#No virtual memory code yet.
 #vm_SRC = vm/file.c			# Some file.
 
 # Filesystem code.
@@ -75,6 +75,7 @@ filesys_SRC += filesys/fsutil.c		# Utilities.
 SOURCES = $(foreach dir,$(KERNEL_SUBDIRS),$($(dir)_SRC))
 OBJECTS = $(patsubst %.c,%.o,$(patsubst %.S,%.o,$(SOURCES)))
 DEPENDS = $(patsubst %.o,%.d,$(OBJECTS))
+
 
 threads/kernel.lds.s: CPPFLAGS += -P
 threads/kernel.lds.s: threads/kernel.lds.S threads/loader.h
