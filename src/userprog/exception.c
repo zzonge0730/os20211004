@@ -4,7 +4,6 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-#include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "vm/page.h"      
 #include "vm/frame.h"    
@@ -166,7 +165,6 @@ fail:
            not_present ? "not present" : "rights violation",
            write ? "writing" : "reading",
            user ? "user" : "kernel");
-
     kill(f);
 }
 

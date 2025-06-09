@@ -2,11 +2,15 @@
 #include "vm/frame.h"
 #include "threads/vaddr.h"
 #include "threads/thread.h"
+#include "threads/interrupt.h"
+#include "threads/palloc.h"
 #include "userprog/pagedir.h"
 #include "filesys/file.h"
 #include <string.h>
 #include "userprog/process.h"
 #include "vm/swap.h"
+
+
 
 static unsigned page_hash(const struct hash_elem *e, void *aux UNUSED);
 static bool page_less(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED);
@@ -88,16 +92,40 @@ bool is_stack_access(void *addr, void *esp) {
   return addr >= (void *) ((uint8_t *)esp - 32) && addr < PHYS_BASE;
 }
 
-bool stack_growth(void *upage) {
-  void *kpage = frame_alloc(PAL_USER | PAL_ZERO, upage);
-  if (kpage == NULL)
-    return false;
-  return install_page(upage, kpage, true);
-}
 
 struct page *spt_find_in_thread(struct thread *t, void *upage) {
     struct page temp;
     temp.upage = pg_round_down(upage);
     struct hash_elem *e = hash_find(&t->spt, &temp.elem);
     return e != NULL ? hash_entry(e, struct page, elem) : NULL;
+}
+
+bool stack_growth(void *upage) {
+    void *kpage = frame_alloc(PAL_USER | PAL_ZERO, upage);
+    if (kpage == NULL)
+        return false;
+
+    if (!install_page(upage, kpage, true)) {
+        frame_free(kpage);
+        return false;
+    }
+
+    struct page *p = malloc(sizeof(struct page));
+    if (p == NULL) {
+        frame_free(kpage);
+        return false;
+    }
+
+    p->loc = PAGE_ZERO;
+    p->upage = upage;
+    p->owner = thread_current();
+    p->writable = true;
+
+    if (!spt_insert(p)) {
+        free(p);
+        frame_free(kpage);
+        return false;
+    }
+
+    return true;
 }
