@@ -7,6 +7,7 @@
 #include "threads/vaddr.h"
 #include "vm/page.h"      
 #include "vm/frame.h"    
+#include "vm/swap.h"
 #include "threads/palloc.h"
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -122,54 +123,53 @@ kill (struct intr_frame *f)
    can find more information about both of these in the
    description of "Interrupt 14--Page Fault Exception (#PF)" in
    [IA32-v3a] section 5.15 "Exception and Interrupt Reference". */
-static void page_fault(struct intr_frame *f) {
+static void
+page_fault (struct intr_frame *f) 
+{
+    bool not_present;
+    bool write;
+    bool user;
     void *fault_addr;
-    asm("movl %%cr2, %0" : "=r" (fault_addr));
-    intr_enable();
-    page_fault_cnt++;
 
-    
+    /* fault_addr 얻기 */
+    asm ("movl %%cr2, %0" : "=r" (fault_addr));
+    intr_enable ();
+    /* 에러 코드 분석 */
+    not_present = (f->error_code & PF_P) == 0;
+    write = (f->error_code & PF_W) != 0;
+    user = (f->error_code & PF_U) != 0;
 
-    if (!is_user_vaddr(fault_addr) || fault_addr >= PHYS_BASE) {
-        thread_current()->exit_status = -1;
-        thread_exit();
+    /* 유저 영역에서 발생한 폴트가 아니거나, 유효하지 않은 주소이면 종료 */
+    if (!user || !is_user_vaddr(fault_addr)) {
+        exit(-1);
     }
 
-    bool not_present = (f->error_code & PF_P) == 0;
-    bool write = (f->error_code & PF_W) != 0;
-    bool user = (f->error_code & PF_U) != 0;
-    if (!user && is_user_vaddr(fault_addr)) {
-        thread_current()->exit_status = -1;
-        thread_exit();
-       
-    }
-    if (!not_present) goto fail;
+    /* 현재 스레드의 esp 값 가져오기 */
+    void *esp = f->esp;
 
-    void *upage = pg_round_down(fault_addr);
-    struct page *page = spt_find(upage);
+    /* 1. Supplemental Page Table에서 페이지 정보를 찾는다. */
+    struct page *page = spt_find(pg_round_down(fault_addr));
 
     if (page != NULL) {
-        if (spt_load(page)) return;
-        else goto fail;
+        /* [FIX 1] 페이지가 SPT에 존재. 로드하기 전에 권한부터 확인! */
+        /* 쓰기 금지된 페이지에 쓰려고 했다면, 즉시 종료. */
+        if (write && !page->writable) {
+            exit(-1);
+        }
+        // 이제 안전하게 페이지를 로드한다.
+        if (!spt_load(page)) {
+            exit(-1); // 로드 실패 시 종료
+        }
+    } 
+    else if (is_stack_access(fault_addr, esp)) {
+        /* [FIX 2] SPT에 없고, 유효한 스택 확장 요청일 경우 (esp 인자 사용) */
+        if (!stack_growth(pg_round_down(fault_addr))) {
+            exit(-1); // 스택 확장 실패 시 종료
+        }
+    } 
+    else {
+        /* [FIX 3] 위 두 경우에 모두 해당하지 않으면, 명백히 잘못된 접근. */
+        exit(-1);
     }
-
-    if (is_stack_access(fault_addr, f->esp)) {
-        if (stack_growth(upage)) return;
-        else goto fail;
-    }
-
-fail:
-    if (user) {
-        thread_current()->exit_status = -1;
-        thread_exit();
-    }
-
-    printf("Page fault at %p: %s error %s page in %s context.\n",
-           fault_addr,
-           not_present ? "not present" : "rights violation",
-           write ? "writing" : "reading",
-           user ? "user" : "kernel");
-    kill(f);
 }
-
 

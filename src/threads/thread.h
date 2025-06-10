@@ -100,7 +100,7 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
     struct file *fd_table[128];          /* fd_table의 fd를 저장하는 공간. */
-
+    void *user_esp; 
 
    #ifdef USERPROG
       /* User program 관련 */

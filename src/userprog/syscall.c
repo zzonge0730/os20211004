@@ -15,7 +15,8 @@
 #include "userprog/process.h"
 #include "vm/page.h"
 #include "threads/malloc.h"
-
+#include "vm/frame.h"
+#include "vm/swap.h"
 // 함수 선언
 void halt(void);
 void exit(int status);
@@ -36,7 +37,9 @@ void check_syscall_args(void *esp, int num_args);
 // syscall 핸들러
 static void syscall_handler(struct intr_frame *);
 static bool mmap_overlap(struct thread *t, void *addr, size_t size);
-static struct lock filesys_lock;
+struct lock filesys_lock;
+static void pin_buffer(const void *buffer, size_t size);
+static void unpin_buffer(const void *buffer, size_t size);
 // 초기화
 void syscall_init(void) {
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
@@ -81,7 +84,7 @@ void check_syscall_args(void *esp, int num_args) {
 }
 static void syscall_handler(struct intr_frame *f) {
     void *esp = f->esp;
-
+    thread_current()->user_esp = f->esp;
     // 먼저 시스템콜 번호만 검사
     check_address(esp);
     int syscall_num = *(int *)esp;
@@ -249,27 +252,32 @@ void exit(int status) {
     thread_exit();  // process_exit()에서 자원 정리 담당
 }
 
+
 int write(int fd, const void *buffer, unsigned size) {
-    // STDOUT은 파일 시스템 락과 무관하므로 먼저 처리
+    if (size == 0) { // 이 부분을 추가하세요.
+        return 0;
+    }
     if (fd == 1) {
         putbuf(buffer, size);
         return size;
     }
 
-    check_valid_buffer(buffer, size);
-    struct thread *cur = thread_current();
-    int bytes_written = -1; // 결과 저장 변수
-
+    pin_buffer(buffer, size);
+    
     lock_acquire(&filesys_lock);
-    if (fd >= 2 && fd < 128 && cur->fd_table[fd] != NULL) {
+    int bytes_written = -1;
+    
+    struct thread *cur = thread_current();
+    if (fd >= 2 && fd < FD_MAX && cur->fd_table[fd] != NULL) {
         bytes_written = file_write(cur->fd_table[fd], buffer, size);
     }
+    
     lock_release(&filesys_lock);
-
+    
+    unpin_buffer(buffer, size);
+    
     return bytes_written;
 }
-
-
 
 bool create(const char *file, unsigned initial_size) {
     check_valid_string(file);
@@ -327,22 +335,29 @@ void close(int fd) {
     lock_release(&filesys_lock);
 }
 int read(int fd, void *buffer, unsigned size) {
-    if (fd == 0) { // STDIN
+    if (size == 0) { 
+        return 0;
+    }    
+    if (fd == 0) {
         unsigned i;
         for (i = 0; i < size; i++)
             ((char *)buffer)[i] = input_getc();
         return size;
     }
+
+    pin_buffer(buffer, size);
     
-    check_valid_buffer(buffer, size);
-    struct thread *cur = thread_current();
+    lock_acquire(&filesys_lock);
     int bytes_read = -1;
 
-    lock_acquire(&filesys_lock);
+    struct thread *cur = thread_current();
     if (fd >= 2 && fd < FD_MAX && cur->fd_table[fd] != NULL) {
         bytes_read = file_read(cur->fd_table[fd], buffer, size);
     }
+    
     lock_release(&filesys_lock);
+
+    unpin_buffer(buffer, size);
     
     return bytes_read;
 }
@@ -617,4 +632,48 @@ void munmap(mapid_t mapid) {
 
     // 2. 실제 자원 해제는 헬퍼 함수에 위임
     do_munmap(entry);
+}
+
+// 버퍼에 해당하는 페이지들을 pin하는 함수
+/* In userprog/syscall.c */
+static void pin_buffer(const void *buffer, size_t size) {
+    if (buffer == NULL) return;
+    void *upage;
+    for (upage = pg_round_down(buffer); upage < buffer + size; upage += PGSIZE) {
+       
+        struct page *p = spt_find(upage);
+        if (p) {
+            
+            if (!spt_load(p)) {
+
+                exit(-1);
+            }
+
+        } else {
+            void *current_esp = thread_current()->user_esp;
+            if (!is_stack_access(upage, current_esp) || !stack_growth(upage)) {
+
+                exit(-1);
+            }
+
+        }
+        void *kpage = pagedir_get_page(thread_current()->pagedir, upage);
+        if (kpage) {
+            frame_pin(kpage);
+
+        } else {
+        
+            exit(-1);
+        }
+    }
+}
+// 버퍼에 해당하는 페이지들의 pin을 해제하는 함수
+static void
+unpin_buffer(const void *buffer, size_t size) {
+    if (buffer == NULL) return;
+    void *upage;
+    for (upage = pg_round_down(buffer); upage < buffer + size; upage += PGSIZE) {
+        void *kpage = pagedir_get_page(thread_current()->pagedir, upage);
+        if(kpage) frame_unpin(kpage);
+    }
 }

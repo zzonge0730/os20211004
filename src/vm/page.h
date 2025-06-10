@@ -7,7 +7,8 @@
 enum page_location {
     PAGE_FILE,      // lazy load from file
     PAGE_SWAP,      // swapped out
-    PAGE_ZERO       // zero page
+    PAGE_ZERO,       // zero page
+    PAGE_IN_MEMORY  // in memory, not swapped or file-backed
 };
 
 struct page {
@@ -29,7 +30,9 @@ bool spt_insert(struct page *p);
 struct page *spt_find(void *upage);
 bool spt_remove(void *upage);
 bool install_page (void *upage, void *kpage, bool writable);
-bool is_stack_access(void *addr, void *esp);
+bool is_stack_access(const void *addr, void *esp);
 bool stack_growth(void *upage);
-
+bool spt_load(struct page *p); 
+bool stack_growth(void *upage);
+bool spt_load_page(void *upage);
 #endif
