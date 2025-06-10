@@ -205,8 +205,19 @@ int process_wait(tid_t child_tid) {
     free(cs);
     return status;
 }
+static void page_write_back(struct hash_elem *e, void *aux UNUSED) {
+    struct page *p = hash_entry(e, struct page, elem);
+    struct thread *cur = thread_current();
 
-
+    // 페이지가 파일에 기반하고, 메모리에 로드되어 있으며, 수정되었다면
+    if (p->file && p->loc == PAGE_IN_MEMORY) {
+        if (pagedir_is_dirty(cur->pagedir, p->upage)) {
+            lock_acquire(&filesys_lock);
+            file_write_at(p->file, pagedir_get_page(cur->pagedir, p->upage), p->read_bytes, p->offset);
+            lock_release(&filesys_lock);
+        }
+    }
+  }
 /* Free the current process's resources. */
 void process_exit(void) {
     struct thread *cur = thread_current();
@@ -217,6 +228,9 @@ void process_exit(void) {
         struct mmap_entry *entry = list_entry(e, struct mmap_entry, elem);
         do_munmap(entry); // 리스트를 건드리지 않는 헬퍼 함수 호출
     }
+    if (cur->spt_initialized) { // spt가 초기화된 경우에만 실행
+        hash_apply(&cur->spt, page_write_back);
+    }    
     // 2. supplemental page table 전부 해제
     hash_clear(&cur->spt, page_destroy);
 
@@ -454,7 +468,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
   /* Set up stack. */
   if (!setup_stack (esp))
     goto done;
-
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
 
@@ -531,6 +544,7 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
 
    Return true if successful, false if a memory allocation error
    or disk read error occurs. */
+
 static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
               uint32_t read_bytes, uint32_t zero_bytes, bool writable)
@@ -539,17 +553,16 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
 
-  while (read_bytes > 0 || zero_bytes > 0) 
+  while (read_bytes > 0 || zero_bytes > 0)
     {
-      // 페이지 단위로 나눔
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      // 페이지 정보 구조체 생성 및 초기화
       struct page *p = malloc(sizeof(struct page));
       if (p == NULL)
         return false;
 
+      memset(p, 0, sizeof(struct page));
       p->loc = PAGE_FILE;
       p->file = file;
       p->offset = ofs;
@@ -564,19 +577,18 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
         return false;
       }
 
-      // 다음 페이지로 이동
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
       ofs += page_read_bytes;
     }
-
   return true;
 }
 
 
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
+/* In userprog/process.c */
 static bool
 setup_stack (void **esp) 
 {
@@ -600,6 +612,7 @@ setup_stack (void **esp)
 bool
 install_page (void *upage, void *kpage, bool writable)
 {
+
   struct thread *t = thread_current ();
 
   /* Verify that there's not already a page at that virtual

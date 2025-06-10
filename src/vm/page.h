@@ -35,4 +35,6 @@ bool stack_growth(void *upage);
 bool spt_load(struct page *p); 
 bool stack_growth(void *upage);
 bool spt_load_page(void *upage);
+struct page *spt_find_in_thread(struct thread *t, void *upage);
+
 #endif

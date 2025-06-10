@@ -21,4 +21,5 @@ void *frame_alloc(enum palloc_flags flags, void *upage);
 void frame_free(void *kpage);
 void frame_pin(void *kpage);
 void frame_unpin(void *kpage);
+extern struct lock frame_lock;
 #endif /* VM_FRAME_H */

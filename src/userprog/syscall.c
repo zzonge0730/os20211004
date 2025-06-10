@@ -511,7 +511,7 @@ mapid_t mmap(int fd, void *addr) {
 
         read_bytes = (length - offset) < PGSIZE ? (length - offset) : PGSIZE;
         zero_bytes = PGSIZE - read_bytes;
-
+        memset(p, 0, sizeof(struct page));
         p->loc = PAGE_FILE;
         p->file = file;
         p->offset = offset;
@@ -598,9 +598,9 @@ void do_munmap(struct mmap_entry *entry) {
             void *kpage = pagedir_get_page(cur->pagedir, page_addr);
             // dirty bit가 켜져 있으면 파일에 다시 쓰기
             if (kpage != NULL && pagedir_is_dirty(cur->pagedir, page_addr)) {
-                // MIN 매크로가 없다면 (a < b ? a : b) 로 대체
-                size_t write_bytes = (p->read_bytes < PGSIZE) ? p->read_bytes : PGSIZE;
-                file_write_at(p->file, kpage, write_bytes, p->offset);
+                lock_acquire(&filesys_lock);
+                file_write_at(p->file, kpage, PGSIZE, p->offset);
+                lock_release(&filesys_lock);
             }
             // 페이지 테이블에서 매핑 해제 및 프레임 반납
             if (kpage != NULL) {
@@ -645,14 +645,14 @@ static void pin_buffer(const void *buffer, size_t size) {
         if (p) {
             
             if (!spt_load(p)) {
-
+                
                 exit(-1);
             }
 
         } else {
             void *current_esp = thread_current()->user_esp;
             if (!is_stack_access(upage, current_esp) || !stack_growth(upage)) {
-
+                
                 exit(-1);
             }
 
@@ -662,7 +662,7 @@ static void pin_buffer(const void *buffer, size_t size) {
             frame_pin(kpage);
 
         } else {
-        
+            
             exit(-1);
         }
     }

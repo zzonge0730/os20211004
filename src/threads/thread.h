@@ -117,6 +117,8 @@ struct thread
       struct child_status *self_status;  // child가 자신의 상태를 부모와 공유
    #endif
       struct hash spt;
+      struct lock spt_lock;
+      bool spt_initialized; 
       struct list mmap_list;      // mmap 매핑 목록
       mapid_t next_mapid;         // 다음 매핑 ID
     /* Owned by thread.c. */
