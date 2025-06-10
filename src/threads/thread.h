@@ -136,6 +136,7 @@ struct child_status {
     bool has_been_waited;
     struct semaphore sema;
     struct list_elem elem;
+    bool load_success;
 };
 struct thread *get_thread_by_tid(tid_t tid);
 

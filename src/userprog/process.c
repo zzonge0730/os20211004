@@ -23,6 +23,7 @@
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static void page_destroy(struct hash_elem *e, void *aux UNUSED);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -69,7 +70,9 @@ process_execute(const char *cmd_line) {
 
     // exec 성공 여부를 기다림
     sema_down(&child->exec_sema);
-    if (!child->load_success) {
+    if (!cs->load_success) {
+        list_remove(&cs->elem);
+        free(cs);
         return -1;
     }
 
@@ -110,7 +113,7 @@ start_process(void *cmd_line_) {
     success = load(argv[0], &if_.eip, &if_.esp);
 
     // 부모에게 로딩 성공 여부 전달
-    cur->load_success = success;
+    cur->self_status->load_success = success;
     sema_up(&cur->exec_sema);
 
     if (!success) {
@@ -205,41 +208,62 @@ int process_wait(tid_t child_tid) {
 
 
 /* Free the current process's resources. */
-void
-process_exit (void)
-{
-  struct thread *cur = thread_current ();
-  uint32_t *pd;
-  if (cur->self_status != NULL) {
-      cur->self_status->exit_status = cur->exit_status;
-      cur->self_status->has_exited = true;
-      sema_up(&cur->self_status->sema);
-  }
-  printf("%s: exit(%d)\n", cur->name, cur->exit_status);
-  sema_up(&cur->wait_sema);
+void process_exit(void) {
+    struct thread *cur = thread_current();
 
-  if (cur->executable != NULL) {
-    file_allow_write(cur->executable);
-    file_close(cur->executable);
-    cur->executable = NULL;
-  }
-  /* Destroy the current process's page directory and switch back
-     to the kernel-only page directory. */
-  pd = cur->pagedir;
-  if (pd != NULL) 
-    {
-      /* Correct ordering here is crucial.  We must set
-         cur->pagedir to NULL before switching page directories,
-         so that a timer interrupt can't switch back to the
-         process page directory.  We must activate the base page
-         directory before destroying the process's page
-         directory, or our active page directory will be one
-         that's been freed (and cleared). */
-      cur->pagedir = NULL;
-      pagedir_activate (NULL);
-      pagedir_destroy (pd);
+    // 1. mmap 리스트 해제 (munmap 호출)
+    while (!list_empty(&cur->mmap_list)) {
+        struct list_elem *e = list_pop_front(&cur->mmap_list);
+        struct mmap_entry *entry = list_entry(e, struct mmap_entry, elem);
+        do_munmap(entry); // 리스트를 건드리지 않는 헬퍼 함수 호출
     }
+    // 2. supplemental page table 전부 해제
+    hash_clear(&cur->spt, page_destroy);
+
+    // 3. 열린 파일들 모두 닫기 (fd_table 순회)
+    int fd;
+    for (fd = 2; fd < FD_MAX; fd++) {
+        if (cur->fd_table[fd] != NULL) {
+            if (cur->fd_table[fd] == cur->executable) {
+                // 실행파일은 아래에서 따로 닫으므로 여기선 그냥 NULL 처리
+                cur->fd_table[fd] = NULL;
+            } else {
+                file_close(cur->fd_table[fd]);
+                cur->fd_table[fd] = NULL;
+            }
+        }
+    }
+
+    // 4. 실행 중인 파일 닫기 (allow_write 포함)
+    if (cur->executable != NULL) {
+        file_allow_write(cur->executable);
+        file_close(cur->executable);
+        cur->executable = NULL;
+    }
+
+    // 5. 페이지 디렉토리 해제
+    uint32_t *pd = cur->pagedir;
+    if (pd != NULL) {
+        cur->pagedir = NULL;
+        pagedir_activate(NULL);
+        pagedir_destroy(pd);
+    }
+
+    // 6. 부모에게 종료 상태 전달
+    if (cur->self_status != NULL) {
+        cur->self_status->exit_status = cur->exit_status;
+        cur->self_status->has_exited = true;
+        sema_up(&cur->self_status->sema);
+    }
+    sema_up(&cur->wait_sema);
+
+    printf("%s: exit(%d)\n", cur->name, cur->exit_status);
 }
+static void page_destroy(struct hash_elem *e, void *aux UNUSED) {
+    struct page *p = hash_entry(e, struct page, elem);
+    free(p);
+}
+
 
 /* Sets up the CPU for running user code in the current
    thread.
@@ -353,7 +377,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
-
+  file_deny_write (file);
+  t->executable = file;
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -432,12 +457,14 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
-  t->executable = file;
-  file_deny_write(file);
+
   success = true;
 
  done:
   /* We arrive here whether the load is successful or not. */
+  if (!success) {
+      file_close(file);
+  }  
   return success;
 }
 

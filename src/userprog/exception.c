@@ -138,7 +138,11 @@ static void page_fault(struct intr_frame *f) {
     bool not_present = (f->error_code & PF_P) == 0;
     bool write = (f->error_code & PF_W) != 0;
     bool user = (f->error_code & PF_U) != 0;
-
+    if (!user && is_user_vaddr(fault_addr)) {
+        thread_current()->exit_status = -1;
+        thread_exit();
+       
+    }
     if (!not_present) goto fail;
 
     void *upage = pg_round_down(fault_addr);
