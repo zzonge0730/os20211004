@@ -118,7 +118,6 @@ struct thread
    #endif
       struct hash spt;
       struct lock spt_lock;
-      bool spt_initialized; 
       struct list mmap_list;      // mmap 매핑 목록
       mapid_t next_mapid;         // 다음 매핑 ID
     /* Owned by thread.c. */

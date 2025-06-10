@@ -228,9 +228,6 @@ void process_exit(void) {
         struct mmap_entry *entry = list_entry(e, struct mmap_entry, elem);
         do_munmap(entry); // 리스트를 건드리지 않는 헬퍼 함수 호출
     }
-    if (cur->spt_initialized) { // spt가 초기화된 경우에만 실행
-        hash_apply(&cur->spt, page_write_back);
-    }    
     // 2. supplemental page table 전부 해제
     hash_clear(&cur->spt, page_destroy);
 

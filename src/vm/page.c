@@ -25,7 +25,7 @@ spt_init (struct thread *t)
 {
   hash_init (&t->spt, page_hash, page_less, NULL);
   lock_init (&t->spt_lock); 
-  t->spt_initialized = true;
+  
 }
 
 unsigned page_hash(const struct hash_elem *e, void *aux UNUSED) {
