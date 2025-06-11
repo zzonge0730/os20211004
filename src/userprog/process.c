@@ -272,6 +272,20 @@ void process_exit(void) {
 }
 static void page_destroy(struct hash_elem *e, void *aux UNUSED) {
     struct page *p = hash_entry(e, struct page, elem);
+    printf(" KERNEL: [exit] page_destroy for upage=%p (owner_tid=%d), loc=%d\n", 
+           p->upage, p->owner->tid, p->loc);
+    if (p->loc == PAGE_IN_MEMORY) {
+        printf(" KERNEL: [exit] WARNING: page is in memory, trying to free frame...\n");
+        void *kpage = pagedir_get_page(p->owner->pagedir, p->upage);
+        if (kpage != NULL) {
+            // 1. 하드웨어 페이지 테이블에서 매핑 정보 제거
+            pagedir_clear_page(p->owner->pagedir, p->upage);
+            // 2. 물리 프레임 해제
+            frame_free(kpage);
+        }
+    } else if (p->loc == PAGE_SWAP) { // PAGE_SWAP은 직접 정의하신 enum 값일 것입니다.
+        swap_free(p->swap_index);
+    }
     free(p);
 }
 

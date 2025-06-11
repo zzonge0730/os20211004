@@ -151,7 +151,9 @@ page_fault(struct intr_frame *f)
 
     /* 현재 스레드의 esp 값 가져오기 */
     void *esp = f->esp;
-    
+    printf(" KERNEL: Page fault at %p, trying to %s user data from tid %d\n", 
+           fault_addr, write ? "write" : "read", thread_current()->tid);
+    printf(" KERNEL: Current ESP is at %p\n", esp);    
 
     /* 1. Supplemental Page Table에서 페이지 정보를 찾는다. */
     void *upage = pg_round_down(fault_addr);
@@ -159,6 +161,7 @@ page_fault(struct intr_frame *f)
     
     if (page != NULL) {
         /* 페이지가 SPT에 존재. 권한 체크 */
+        printf(" KERNEL: SPT miss for %p. Checking for stack access...\n", upage);
         if (write && !page->writable) {
             exit(-1);
         }
@@ -167,12 +170,14 @@ page_fault(struct intr_frame *f)
         }
     } 
     else if (is_stack_access(fault_addr, esp)) {
+      printf(" KERNEL: Valid stack access detected. Growing stack...\n");
         if (!stack_growth(upage)) {
             exit(-1);
         }
         return;
     } 
     else {
+        printf(" KERNEL: NOT a valid stack access. Terminating.\n");
         exit(-1);
     }
 }

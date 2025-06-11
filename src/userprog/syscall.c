@@ -645,14 +645,12 @@ static void pin_buffer(const void *buffer, size_t size) {
         if (p) {
             
             if (!spt_load(p)) {
-                
                 exit(-1);
             }
 
         } else {
             void *current_esp = thread_current()->user_esp;
             if (!is_stack_access(upage, current_esp) || !stack_growth(upage)) {
-                
                 exit(-1);
             }
 
@@ -660,9 +658,7 @@ static void pin_buffer(const void *buffer, size_t size) {
         void *kpage = pagedir_get_page(thread_current()->pagedir, upage);
         if (kpage) {
             frame_pin(kpage);
-
         } else {
-            
             exit(-1);
         }
     }

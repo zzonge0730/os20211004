@@ -123,12 +123,14 @@ bool is_stack_access(const void *addr, void *esp) {
     uintptr_t addr_val = (uintptr_t)addr;
     uintptr_t esp_val = (uintptr_t)esp;
     uintptr_t stack_bottom = PHYS_BASE - MAX_STACK_SIZE;
-    
+    printf(" KERNEL: [is_stack_access] checking addr=%p against esp=%p\n", addr, esp);
+    printf(" KERNEL: [is_stack_access] lower bound (esp - 32) is %p\n", esp - 32);    
     // PUSHA 명령어를 고려하여 esp 아래 32바이트까지 허용
     bool is_near_esp = (addr_val >= esp_val - 32) || 
                        (addr_val >= esp_val && addr_val < PHYS_BASE);
     bool is_in_stack_range = addr_val >= stack_bottom && addr_val < PHYS_BASE;
-    
+    printf(" KERNEL: [is_near_esp] result: %s\n", is_near_esp ? "TRUE" : "FALSE");
+    printf(" KERNEL: [is_in_stack_range] result: %s\n", is_in_stack_range ? "TRUE" : "FALSE");
     return is_near_esp && is_in_stack_range;
 }
 

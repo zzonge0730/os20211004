@@ -57,38 +57,39 @@ frame_alloc(enum palloc_flags flags, void *upage) {
 
     void *kpage = palloc_get_page(flags);
 
-    if (kpage == NULL) {
-        /* ----- Eviction Logic START ----- */
-        struct frame_entry *victim = choose_victim();
-        if (victim == NULL) {
-             PANIC("All frames are pinned, cannot evict!");
-        }
+if (kpage == NULL) {
+    /* ----- Eviction Logic START ----- */
+    printf(" KERNEL: No free frames, starting eviction...\n"); // Eviction 시작 알림
 
-        struct page *victim_page = spt_find_in_thread(victim->owner, victim->upage);
-        ASSERT(victim_page != NULL);
+    struct frame_entry *victim = choose_victim();
+    if (victim == NULL) {
+         PANIC("All frames are pinned, cannot evict!");
+    }
 
-        /* --- Victim Info (for debugging) --- */
-        bool is_dirty = pagedir_is_dirty(victim->owner->pagedir, victim->upage);
+    struct page *victim_page = spt_find_in_thread(victim->owner, victim->upage);
+    ASSERT(victim_page != NULL);
 
-        if (victim_page->file) { 
-            /* 페이지가 파일 기반인 경우 (실행 파일 또는 mmap) */
+    bool is_dirty = pagedir_is_dirty(victim->owner->pagedir, victim->upage);
+    
+    // --- 희생양(victim)의 정보 상세 출력 ---
+    printf(" KERNEL: Evicting frame. kpage=%p, upage=%p, owner_tid=%d, dirty=%d\n", 
+           victim->kpage, victim->upage, victim->owner->tid, is_dirty);
+    printf(" KERNEL: Victim page's initial state: loc=%d\n", victim_page->loc);
 
-            if (is_dirty) {
-                
-                lock_acquire(&filesys_lock);
-                file_write_at(victim_page->file, victim->kpage, PGSIZE, victim_page->offset);
-                lock_release(&filesys_lock);
-            }
-            victim_page->loc = PAGE_FILE;
-        } else { 
-            /* 페이지가 익명(anonymous)인 경우 */
+    if (victim_page->file) { 
+        // ... (파일 기반 페이지 처리)
+        victim_page->loc = PAGE_FILE; // 상태 변경
+    } else { 
+        // ... (익명 페이지 처리)
+        victim_page->loc = PAGE_SWAP; // 상태 변경
+        victim_page->swap_index = swap_out(victim->kpage);
+        printf(" KERNEL: Swapped out to slot %d.\n", victim_page->swap_index);
+    }
+    
+    // !!! 상태가 정말 변경되었는지 확인하는 로그 !!!
+    printf(" KERNEL: Victim page's new state: loc=%d\n", victim_page->loc);
 
-            victim_page->loc = PAGE_SWAP;
-            victim_page->swap_index = swap_out(victim->kpage);
-        }
-
-        
-        pagedir_clear_page(victim->owner->pagedir, victim->upage);
+    pagedir_clear_page(victim->owner->pagedir, victim->upage);
         kpage = victim->kpage;
         list_remove(&victim->elem);
         free(victim);
