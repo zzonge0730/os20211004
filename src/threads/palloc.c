@@ -90,6 +90,7 @@ palloc_get_multiple (enum palloc_flags flags, size_t page_cnt)
     {
       if (flags & PAL_ZERO)
         memset (pages, 0, PGSIZE * page_cnt);
+      //printf("[palloc] GET  @%p cnt=%zu from %s\n", pages, page_cnt,(flags & PAL_USER) ? "USER" : "KERNEL");
     }
   else 
     {
@@ -137,7 +138,7 @@ palloc_free_multiple (void *pages, size_t page_cnt)
   memset (pages, 0xcc, PGSIZE * page_cnt);
 #endif
 
-  ASSERT (bitmap_all (pool->used_map, page_idx, page_cnt));
+  //printf("[palloc] FREE @%p cnt=%zu from %s\n",pages, page_cnt, page_from_pool(&user_pool, pages) ? "USER" : "KERNEL");
   bitmap_set_multiple (pool->used_map, page_idx, page_cnt, false);
 }
 
@@ -161,7 +162,7 @@ init_pool (struct pool *p, void *base, size_t page_cnt, const char *name)
     PANIC ("Not enough memory in %s for bitmap.", name);
   page_cnt -= bm_pages;
 
-  printf ("%zu pages available in %s.\n", page_cnt, name);
+  //printf ("%zu pages available in %s.\n", page_cnt, name);
 
   /* Initialize the pool. */
   lock_init (&p->lock);

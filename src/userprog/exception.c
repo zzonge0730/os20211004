@@ -9,6 +9,8 @@
 #include "vm/frame.h"    
 #include "vm/swap.h"
 #include "threads/palloc.h"
+#include "userprog/syscall.h"   // exit(int) 선언
+#include "userprog/pagedir.h"   // pagedir_get_page(…)
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
@@ -123,9 +125,12 @@ kill (struct intr_frame *f)
    can find more information about both of these in the
    description of "Interrupt 14--Page Fault Exception (#PF)" in
    [IA32-v3a] section 5.15 "Exception and Interrupt Reference". */
+static int fault_depth = 0;
 static void
 page_fault(struct intr_frame *f) 
-{
+{  
+    fault_depth++;
+    //printf(" KERNEL: Page Fault Entry! Depth: %d\n", fault_depth);
     page_fault_cnt++;
     bool not_present;
     bool write;
@@ -147,13 +152,14 @@ page_fault(struct intr_frame *f)
     if (!user || !is_user_vaddr(fault_addr)) {
         
         exit(-1);
+
     }
 
     /* 현재 스레드의 esp 값 가져오기 */
     void *esp = f->esp;
-    printf(" KERNEL: Page fault at %p, trying to %s user data from tid %d\n", 
-           fault_addr, write ? "write" : "read", thread_current()->tid);
-    printf(" KERNEL: Current ESP is at %p\n", esp);    
+    //printf(" KERNEL: Page fault at %p, trying to %s user data from tid %d\n", 
+    //       fault_addr, write ? "write" : "read", thread_current()->tid);
+    //printf(" KERNEL: Current ESP is at %p\n", esp);    
 
     /* 1. Supplemental Page Table에서 페이지 정보를 찾는다. */
     void *upage = pg_round_down(fault_addr);
@@ -161,25 +167,30 @@ page_fault(struct intr_frame *f)
     
     if (page != NULL) {
         /* 페이지가 SPT에 존재. 권한 체크 */
-        printf(" KERNEL: SPT miss for %p. Checking for stack access...\n", upage);
+        //printf(" KERNEL: SPT miss for %p. Checking for stack access...\n", upage);
         if (write && !page->writable) {
             exit(-1);
         }
         if (!spt_load(page)) {
+            //printf("[fault] spt_load FAILED upage=%p\n", upage);
             exit(-1);
         }
+        //printf("[fault] spt_load SUCCESS upage=%p → kpage=%p\n", upage, pagedir_get_page(thread_current()->pagedir, upage));
     } 
     else if (is_stack_access(fault_addr, esp)) {
-      printf(" KERNEL: Valid stack access detected. Growing stack...\n");
+      //printf(" KERNEL: Valid stack access detected. Growing stack...\n");
         if (!stack_growth(upage)) {
             exit(-1);
         }
+        //printf("[fault] stack_growth upage=%p → kpage=%p\n", upage, pagedir_get_page(thread_current()->pagedir, upage));
         return;
     } 
     else {
-        printf(" KERNEL: NOT a valid stack access. Terminating.\n");
+        //printf(" KERNEL: NOT a valid stack access. Terminating.\n");
         exit(-1);
     }
+    //printf(" KERNEL: Page Fault Exit! Depth: %d\n", fault_depth);
+    fault_depth--;
 }
 
 

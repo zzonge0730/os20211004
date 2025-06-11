@@ -59,7 +59,7 @@ frame_alloc(enum palloc_flags flags, void *upage) {
 
 if (kpage == NULL) {
     /* ----- Eviction Logic START ----- */
-    printf(" KERNEL: No free frames, starting eviction...\n"); // Eviction 시작 알림
+    //printf(" KERNEL: No free frames, starting eviction...\n"); // Eviction 시작 알림
 
     struct frame_entry *victim = choose_victim();
     if (victim == NULL) {
@@ -72,9 +72,8 @@ if (kpage == NULL) {
     bool is_dirty = pagedir_is_dirty(victim->owner->pagedir, victim->upage);
     
     // --- 희생양(victim)의 정보 상세 출력 ---
-    printf(" KERNEL: Evicting frame. kpage=%p, upage=%p, owner_tid=%d, dirty=%d\n", 
-           victim->kpage, victim->upage, victim->owner->tid, is_dirty);
-    printf(" KERNEL: Victim page's initial state: loc=%d\n", victim_page->loc);
+    //printf(" KERNEL: Evicting frame. kpage=%p, upage=%p, owner_tid=%d, dirty=%d\n", victim->kpage, victim->upage, victim->owner->tid, is_dirty);
+    //printf(" KERNEL: Victim page's initial state: loc=%d\n", victim_page->loc);
 
     if (victim_page->file) { 
         // ... (파일 기반 페이지 처리)
@@ -83,11 +82,11 @@ if (kpage == NULL) {
         // ... (익명 페이지 처리)
         victim_page->loc = PAGE_SWAP; // 상태 변경
         victim_page->swap_index = swap_out(victim->kpage);
-        printf(" KERNEL: Swapped out to slot %d.\n", victim_page->swap_index);
+        //printf(" KERNEL: Swapped out to slot %d.\n", victim_page->swap_index);
     }
     
     // !!! 상태가 정말 변경되었는지 확인하는 로그 !!!
-    printf(" KERNEL: Victim page's new state: loc=%d\n", victim_page->loc);
+    //printf(" KERNEL: Victim page's new state: loc=%d\n", victim_page->loc);
 
     pagedir_clear_page(victim->owner->pagedir, victim->upage);
         kpage = victim->kpage;
@@ -106,7 +105,14 @@ if (kpage == NULL) {
     f->kpage = kpage;
     f->upage = upage;
     f->owner = thread_current();
-    f->pinned = false;
+    if (upage == NULL) {
+        // upage가 NULL이면 페이지 테이블용 프레임으로 간주하고
+        // 영구적으로 pin 처리하여 evict되지 않도록 합니다.
+        f->pinned = true;
+    } else {
+        // 일반 사용자 페이지용 프레임은 evict 대상이 될 수 있습니다.
+        f->pinned = false;
+    }
     list_push_back(&frame_table, &f->elem);
 
     lock_release(&frame_lock);
@@ -116,6 +122,7 @@ if (kpage == NULL) {
 void
 frame_free(void *kpage) {
   ASSERT(kpage != NULL);
+  //printf("[frame] free frame kpage=%p\n", kpage);
   lock_acquire(&frame_lock);
 
   struct list_elem *e;

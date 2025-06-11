@@ -37,11 +37,23 @@ process_execute(const char *cmd_line) {
         frame_table_initialized = true;
     }
     if (cmd_line == NULL) return TID_ERROR;
+
+    // 명령어 라인 복사 (start_process에서 free 필요)
     char *fn_copy = palloc_get_page(0);
     if (fn_copy == NULL) return TID_ERROR;
     strlcpy(fn_copy, cmd_line, PGSIZE);
 
-    tid_t tid = thread_create(fn_copy, PRI_DEFAULT, start_process, fn_copy);
+    // 프로그램 이름만 추출해서 thread_create에 넘김
+    char prog_name[16];
+    char *save_ptr;
+    strlcpy(prog_name, cmd_line, sizeof prog_name);
+    char *token = strtok_r(prog_name, " ", &save_ptr);
+    if (token == NULL) {
+        palloc_free_page(fn_copy);
+        return TID_ERROR;
+    }
+
+    tid_t tid = thread_create(token, PRI_DEFAULT, start_process, fn_copy);
     if (tid == TID_ERROR) {
         palloc_free_page(fn_copy);
         return TID_ERROR;
@@ -50,11 +62,9 @@ process_execute(const char *cmd_line) {
     // child_status 구조체 메모리 확보 및 초기화
     struct child_status *cs = malloc(sizeof(struct child_status));
     if (cs == NULL) return TID_ERROR;
-
-    memset(cs, 0, sizeof(struct child_status));  // 모든 필드 안전 초기화
+    memset(cs, 0, sizeof(struct child_status));
     cs->tid = tid;
     sema_init(&cs->sema, 0);
-
 
     // 자식 리스트에 추가
     list_push_back(&thread_current()->children, &cs->elem);
@@ -62,7 +72,9 @@ process_execute(const char *cmd_line) {
     // 자식 스레드 포인터 가져오기
     struct thread *child = get_thread_by_tid(tid);
     if (child == NULL) {
-        return -1;
+        list_remove(&cs->elem);
+        free(cs);
+        return TID_ERROR;
     }
     spt_init(child);
     child->self_status = cs;
@@ -73,7 +85,7 @@ process_execute(const char *cmd_line) {
     if (!cs->load_success) {
         list_remove(&cs->elem);
         free(cs);
-        return -1;
+        return TID_ERROR;
     }
 
     return tid;
@@ -84,20 +96,17 @@ static void
 start_process(void *cmd_line_) {
     char *cmd_line = cmd_line_;
     if (cmd_line == NULL || cmd_line[0] == '\0') {
+        palloc_free_page(cmd_line);
         thread_exit();
-    }    
-    struct intr_frame if_;
-    bool success;
-    struct thread *cur = thread_current();
-    void *esp;
-    int i;
+    }
 
+    struct intr_frame if_;
     memset(&if_, 0, sizeof if_);
     if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
 
-    // 인자 파싱
+    // 명령어 라인 파싱
     char *argv[128];
     int argc = 0;
     char *token, *save_ptr;
@@ -107,12 +116,11 @@ start_process(void *cmd_line_) {
     }
     argv[argc] = NULL;
 
-    strlcpy(cur->name, argv[0], sizeof cur->name);
-
-    // 실제 로딩 수행
-    success = load(argv[0], &if_.eip, &if_.esp);
+    // 실제 로딩 수행 (스레드 이름은 이미 thread_create에서 설정됨)
+    bool success = load(argv[0], &if_.eip, &if_.esp);
 
     // 부모에게 로딩 성공 여부 전달
+    struct thread *cur = thread_current();
     cur->self_status->load_success = success;
     sema_up(&cur->exec_sema);
 
@@ -122,9 +130,11 @@ start_process(void *cmd_line_) {
     }
 
     // 사용자 스택 구성
-    esp = if_.esp;
+    void *esp = if_.esp;
     char *arg_addr[128];
+    int i;
 
+    // 인자 문자열 복사 (역순)
     for (i = argc - 1; i >= 0; i--) {
         size_t len = strlen(argv[i]) + 1;
         esp -= len;
@@ -132,28 +142,27 @@ start_process(void *cmd_line_) {
         arg_addr[i] = (char *)esp;
     }
 
+    // 워드 정렬 (4바이트)
     uintptr_t align = (uintptr_t)esp % 4;
     if (align != 0) {
         esp -= align;
         memset(esp, 0, align);
     }
 
+    // argv 배열 (역순) + NULL
     esp -= sizeof(char *);
     *(char **)esp = NULL;
-
     for (i = argc - 1; i >= 0; i--) {
         esp -= sizeof(char *);
         *(char **)esp = arg_addr[i];
     }
-
     char **argv_start = (char **)esp;
 
+    // argv 포인터, argc, fake return address
     esp -= sizeof(char **);
     *(char ***)esp = argv_start;
-
     esp -= sizeof(int);
     *(int *)esp = argc;
-
     esp -= sizeof(void *);
     *(void **)esp = NULL;
 
@@ -162,7 +171,6 @@ start_process(void *cmd_line_) {
     palloc_free_page(cmd_line);
 
     asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
-
     NOT_REACHED();
 }
 
@@ -272,10 +280,9 @@ void process_exit(void) {
 }
 static void page_destroy(struct hash_elem *e, void *aux UNUSED) {
     struct page *p = hash_entry(e, struct page, elem);
-    printf(" KERNEL: [exit] page_destroy for upage=%p (owner_tid=%d), loc=%d\n", 
-           p->upage, p->owner->tid, p->loc);
+    
     if (p->loc == PAGE_IN_MEMORY) {
-        printf(" KERNEL: [exit] WARNING: page is in memory, trying to free frame...\n");
+        
         void *kpage = pagedir_get_page(p->owner->pagedir, p->upage);
         if (kpage != NULL) {
             // 1. 하드웨어 페이지 테이블에서 매핑 정보 제거
