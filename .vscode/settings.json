@@ -62,6 +62,8 @@
     "file.h": "c",
     "syscall-nr.h": "c",
     "syscall.h": "c",
-    "synch.h": "c"
+    "synch.h": "c",
+    "off_t.h": "c",
+    "stdbool.h": "c"
   }
 }
