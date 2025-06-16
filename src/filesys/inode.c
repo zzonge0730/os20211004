@@ -10,6 +10,7 @@
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 #define DIRECT_BLOCK_COUNT 123
+#define INDIRECT_BLOCK_COUNT 128
 /* On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk {
@@ -42,14 +43,23 @@ struct inode
    within INODE.
    Returns -1 if INODE does not contain data for a byte at offset
    POS. */
-static block_sector_t
-byte_to_sector (const struct inode *inode, off_t pos) 
-{
-  ASSERT (inode != NULL);
-  if (pos < inode->data.length)
-    return inode->data.start + pos / BLOCK_SECTOR_SIZE;
-  else
+static block_sector_t byte_to_sector(const struct inode *inode, off_t pos) {
+  ASSERT(inode != NULL);
+  if (pos >= inode->data.length)
     return -1;
+
+  size_t index = pos / BLOCK_SECTOR_SIZE;
+  if (index < DIRECT_BLOCK_COUNT)
+    return inode->data.direct[index];
+
+  index -= DIRECT_BLOCK_COUNT;
+  if (index < INDIRECT_BLOCK_COUNT) {
+    block_sector_t indirect_block[INDIRECT_BLOCK_COUNT];
+    load_indirect(inode->data.indirect, indirect_block);
+    return indirect_block[index];
+  }
+
+  return -1; // too large
 }
 
 /* List of open inodes, so that opening a single inode twice
@@ -246,6 +256,40 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
   free (bounce);
 
   return bytes_read;
+}
+
+static bool inode_extend(struct inode *inode, off_t new_length) {
+  size_t old_sectors = bytes_to_sectors(inode->data.length);
+  size_t new_sectors = bytes_to_sectors(new_length);
+  static char zeros[BLOCK_SECTOR_SIZE];
+  size_t i;
+
+  if (new_sectors > DIRECT_BLOCK_COUNT + INDIRECT_BLOCK_COUNT)
+    return false;
+
+  for (i = old_sectors; i < new_sectors; i++) {
+    block_sector_t new_sec;
+    if (!free_map_allocate(1, &new_sec)) return false;
+    block_write(fs_device, new_sec, zeros);
+
+    if (i < DIRECT_BLOCK_COUNT) {
+      inode->data.direct[i] = new_sec;
+    } else {
+      block_sector_t indirect_block[INDIRECT_BLOCK_COUNT];
+      if (inode->data.indirect == 0) {
+        if (!free_map_allocate(1, &inode->data.indirect)) return false;
+        memset(indirect_block, 0, sizeof indirect_block);
+      } else {
+        block_read(fs_device, inode->data.indirect, indirect_block);
+      }
+      indirect_block[i - DIRECT_BLOCK_COUNT] = new_sec;
+      block_write(fs_device, inode->data.indirect, indirect_block);
+    }
+  }
+
+  inode->data.length = new_length;
+  block_write(fs_device, inode->sector, &inode->data);
+  return true;
 }
 
 /* Writes SIZE bytes from BUFFER into INODE, starting at OFFSET.
